@@ -12,6 +12,8 @@ jobs:
       - uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: 5.4.x
+      - name: Pin https-eio
+        run: opam pin add https-eio git+https://github.com/loganbnielsen/https-eio.git#main --no-action
       - name: Pin aws-eio
         run: opam pin add aws-eio git+https://github.com/loganbnielsen/aws-eio.git#main --no-action
       - name: Install opam dependencies
