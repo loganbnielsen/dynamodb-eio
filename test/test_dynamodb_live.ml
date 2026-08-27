@@ -9,7 +9,23 @@
    AWS_REGION is optional, defaulting to us-east-1.
 
    Writes exactly one item per test run under a sun-live-test# prefixed key
-   and deletes it in Fun.protect, so a failed assertion still cleans up. *)
+   and deletes it in Fun.protect, so a failed assertion still cleans up.
+
+   Use a table dedicated to this test, not one holding real data — that
+   makes table-level ARN scoping sufficient without needing an item-level
+   condition. Minimal IAM policy for the credentials used here:
+
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Sid": "DynamoDBLiveTestOnly",
+         "Effect": "Allow",
+         "Action": ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:DeleteItem"],
+         "Resource": "arn:aws:dynamodb:YOUR_REGION:YOUR_ACCOUNT_ID:table/YOUR_TABLE"
+       }
+     ]
+   } *)
 
 let live_enabled () = Sys.getenv_opt "DYNAMODB_EIO_LIVE" = Some "1"
 
