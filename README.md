@@ -7,10 +7,13 @@ this exists, not just a raw API binding.
 Originally developed inside the [Sun](https://github.com/loganbnielsen/sun)
 platform, and extracted here to be usable standalone.
 
-**Caution:** local tests cover item encoding, response interpretation, and the
-Index/Entity functors against synthetic data; a live smoke test exists but has
-not yet been run against a real table. Treat 0.1.0 accordingly until someone
-reports a real end-to-end call working.
+**Live-tested successfully** (`test/test_dynamodb_live.ml`, put/get/delete
+round trip + the missing-key path) against a real table — this required a
+fix in `aws-eio` itself ([`aws-eio#5`](https://github.com/loganbnielsen/aws-eio/pull/5)),
+though DynamoDB itself doesn't require the header that fix adds (S3 does;
+that's how it was originally caught). `scripts/setup.sh`/`teardown.sh`
+provision a real table for this in your own AWS account — see their headers
+for usage.
 
 ## Build
 
@@ -27,7 +30,9 @@ dune runtest
 
 No external infrastructure required for the default test run. A live test
 gated by `DYNAMODB_EIO_LIVE=1` (real table + credentials required) is in
-`test/test_dynamodb_live.ml` and is skipped otherwise.
+`test/test_dynamodb_live.ml` and is skipped otherwise. `scripts/setup.sh`
+provisions a dedicated table for it in your own AWS account
+(`scripts/teardown.sh` removes it) — see their headers for usage.
 `test/negative_index_mismatch.ml.txt` documents (and was used to hand-verify)
 a compile-time guarantee — see its own header for why it isn't wired into an
 automated dune rule.
