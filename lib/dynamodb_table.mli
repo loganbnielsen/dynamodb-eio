@@ -23,10 +23,10 @@ end
 
 module Index (I : INDEX) : sig
   val get :
-    net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> Dynamo_client.config ->
-    pk:I.pk -> sk:I.sk -> (Dynamo_client.item option, Dynamo_error.t) result
+    net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> Dynamodb_client.config ->
+    pk:I.pk -> sk:I.sk -> (Dynamodb_client.item option, Dynamodb_error.t) result
   (** Implemented as a [Query] with an equality key condition on both [pk]
-      and [sk] — {!Dynamo_client}'s [get_item] only works against the
+      and [sk] — {!Dynamodb_client}'s [get_item] only works against the
       table's primary key, and DynamoDB simply has no [GetItem]-by-
       secondary-index operation, so [Query] is the only correct mechanism
       for either case.
@@ -39,14 +39,14 @@ module Index (I : INDEX) : sig
       [get] on an index where that can happen — [get] fails loud rather
       than silently returning one arbitrary match. *)
 
-  val interpret_get_results : Dynamo_client.item list -> (Dynamo_client.item option, Dynamo_error.t) result
+  val interpret_get_results : Dynamodb_client.item list -> (Dynamodb_client.item option, Dynamodb_error.t) result
   (** [get]'s pure result-interpretation step, exposed for testing — no
       network call needed to exercise the multi-item (non-unique-index)
       case. *)
 
   val query :
-    net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> Dynamo_client.config ->
-    pk:I.pk -> unit -> (Dynamo_client.item list, Dynamo_error.t) result
+    net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> Dynamodb_client.config ->
+    pk:I.pk -> unit -> (Dynamodb_client.item list, Dynamodb_error.t) result
   (** Every item under [pk] on this index. [sk] is deliberately not a
       parameter — a query needing a sort-key condition beyond "every item in
       this partition" is real, deferred scope; see [dynamo-eio.md]. *)
@@ -59,12 +59,12 @@ end
 module Entity (E : ENTITY) : sig
   val discriminator_attribute : string
 
-  val stamp : Dynamo_client.item -> Dynamo_client.item
-  (** Adds the discriminator attribute — call before {!Dynamo_client.put_item}. *)
+  val stamp : Dynamodb_client.item -> Dynamodb_client.item
+  (** Adds the discriminator attribute — call before {!Dynamodb_client.put_item}. *)
 
-  val check : Dynamo_client.item -> (Dynamo_client.item, Dynamo_error.t) result
+  val check : Dynamodb_client.item -> (Dynamodb_client.item, Dynamodb_error.t) result
   (** [Error (Wrong_entity _)] if the stamped name doesn't match [E.name] (or
-      is missing entirely) — call on whatever {!Dynamo_client.get_item}/
+      is missing entirely) — call on whatever {!Dynamodb_client.get_item}/
       {!Index.get}/{!Index.query} returned before treating it as this
       entity's shape. *)
 end

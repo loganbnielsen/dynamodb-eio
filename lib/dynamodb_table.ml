@@ -20,7 +20,7 @@ module Index (I : INDEX) = struct
     | [ item ] -> Ok (Some item)
     | _ :: _ :: _ as items ->
       Error
-        (Dynamo_error.Malformed_response
+        (Dynamodb_error.Malformed_response
            (Printf.sprintf
               "Index.get expects at most one item for a fully-specified pk+sk, got %d — %s"
               (List.length items)
@@ -34,21 +34,21 @@ module Index (I : INDEX) = struct
 
   let get ~net ~clock config ~pk ~sk =
     match
-      Dynamo_client.query ~net ~clock config ?index_name:I.index_name
+      Dynamodb_client.query ~net ~clock config ?index_name:I.index_name
         ~expression_attribute_names:[ ("#pk", I.pk_attribute); ("#sk", I.sk_attribute) ]
         ~key_condition_expression:"#pk = :pk AND #sk = :sk"
         ~expression_attribute_values:
-          [ (":pk", Dynamo_value.S (I.format_pk pk)); (":sk", Dynamo_value.S (I.format_sk sk)) ]
+          [ (":pk", Dynamodb_value.S (I.format_pk pk)); (":sk", Dynamodb_value.S (I.format_sk sk)) ]
         ()
     with
     | Error _ as e -> e
     | Ok items -> interpret_get_results items
 
   let query ~net ~clock config ~pk () =
-    Dynamo_client.query ~net ~clock config ?index_name:I.index_name
+    Dynamodb_client.query ~net ~clock config ?index_name:I.index_name
       ~expression_attribute_names:[ ("#pk", I.pk_attribute) ]
       ~key_condition_expression:"#pk = :pk"
-      ~expression_attribute_values:[ (":pk", Dynamo_value.S (I.format_pk pk)) ]
+      ~expression_attribute_values:[ (":pk", Dynamodb_value.S (I.format_pk pk)) ]
       ()
 end
 
@@ -57,13 +57,13 @@ module type ENTITY = sig
 end
 
 module Entity (E : ENTITY) = struct
-  let discriminator_attribute = "__dynamo_eio_entity__"
+  let discriminator_attribute = "__dynamodb_eio_entity__"
 
-  let stamp item = (discriminator_attribute, Dynamo_value.S E.name) :: item
+  let stamp item = (discriminator_attribute, Dynamodb_value.S E.name) :: item
 
   let check item =
     match List.assoc_opt discriminator_attribute item with
-    | Some (Dynamo_value.S got) when got = E.name -> Ok item
-    | Some (Dynamo_value.S got) -> Error (Dynamo_error.Wrong_entity { expected = E.name; got = Some got })
-    | Some _ | None -> Error (Dynamo_error.Wrong_entity { expected = E.name; got = None })
+    | Some (Dynamodb_value.S got) when got = E.name -> Ok item
+    | Some (Dynamodb_value.S got) -> Error (Dynamodb_error.Wrong_entity { expected = E.name; got = Some got })
+    | Some _ | None -> Error (Dynamodb_error.Wrong_entity { expected = E.name; got = None })
 end

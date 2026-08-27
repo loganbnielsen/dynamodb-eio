@@ -1,4 +1,4 @@
-# dynamo-eio
+# dynamodb-eio
 
 An Eio-native DynamoDB client built on [aws-eio](https://github.com/loganbnielsen/aws-eio)
 — "the ElectroDB-replacement layer." A typed indexing layer is the actual reason
@@ -26,8 +26,8 @@ dune runtest
 ```
 
 No external infrastructure required for the default test run. A live test
-gated by `DYNAMO_EIO_LIVE=1` (real table + credentials required) is in
-`test/test_dynamo_live.ml` and is skipped otherwise.
+gated by `DYNAMODB_EIO_LIVE=1` (real table + credentials required) is in
+`test/test_dynamodb_live.ml` and is skipped otherwise.
 `test/negative_index_mismatch.ml.txt` documents (and was used to hand-verify)
 a compile-time guarantee — see its own header for why it isn't wired into an
 automated dune rule.
@@ -44,7 +44,7 @@ reordered parameter is a runtime bug, sometimes silent (wrong partition, not
 an error), and querying an index with the wrong key shape is a runtime
 failure, not a compile error.
 
-`dynamo-eio` fixes this with one module per index, each carrying its own
+`dynamodb-eio` fixes this with one module per index, each carrying its own
 nominally distinct `pk`/`sk` types, generating its own typed `get`/`query` via
 a functor — the same shape as a table-per-schema functor, applied once per
 index instead of once per table. Passing one index's key to another index's
@@ -60,12 +60,12 @@ application/x-amz-json-1.0`, `X-Amz-Target: DynamoDB_20120810.<Action>` (e.g.
 by `aws-eio`'s `signed_request`.
 
 Errors: a non-2xx response is a JSON body `{"__type": "...#SomeException",
-"message": "..."}`. `Dynamo_error.of_response` classifies
+"message": "..."}`. `Dynamodb_error.of_response` classifies
 `ConditionalCheckFailedException` and `ResourceNotFoundException` as their own
 cases; anything else parseable becomes `Service_error`; anything unparseable
 becomes `Unparseable_error_response`.
 
-## `Dynamo_value.t` — DynamoDB's attribute-value encoding
+## `Dynamodb_value.t` — DynamoDB's attribute-value encoding
 
 ```ocaml
 type t =
@@ -86,28 +86,28 @@ val to_json : t -> Yojson.Safe.t
 val of_json : Yojson.Safe.t -> (t, string) result
 ```
 
-## `Dynamo_client` — raw operations
+## `Dynamodb_client` — raw operations
 
 ```ocaml
 type config = { table : string; region : string; credentials : Aws_credentials.t }
-type item = (string * Dynamo_value.t) list
+type item = (string * Dynamodb_value.t) list
 
-val put_item : net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> item:item -> (unit, Dynamo_error.t) result
-val get_item : net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> key:item -> (item option, Dynamo_error.t) result
-val delete_item : net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> key:item -> (unit, Dynamo_error.t) result
+val put_item : net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> item:item -> (unit, Dynamodb_error.t) result
+val get_item : net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> key:item -> (item option, Dynamodb_error.t) result
+val delete_item : net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> key:item -> (unit, Dynamodb_error.t) result
 
 val query :
   net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config ->
   ?index_name:string ->
   key_condition_expression:string ->
   expression_attribute_values:item ->
-  (item list, Dynamo_error.t) result
+  (item list, Dynamodb_error.t) result
 (** Single page only — v1 does not read [LastEvaluatedKey]. A query whose real result
     set exceeds DynamoDB's 1MB-per-page limit silently returns only the first page; see
     "Out of Scope". *)
 ```
 
-## `Dynamo_table` — the typed indexing layer
+## `Dynamodb_table` — the typed indexing layer
 
 ```ocaml
 module type INDEX = sig
@@ -123,12 +123,12 @@ end
 
 module Index (I : INDEX) : sig
   val get :
-    net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> Dynamo_client.config ->
-    pk:I.pk -> sk:I.sk -> (Dynamo_client.item option, Dynamo_error.t) result
+    net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> Dynamodb_client.config ->
+    pk:I.pk -> sk:I.sk -> (Dynamodb_client.item option, Dynamodb_error.t) result
 
   val query :
-    net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> Dynamo_client.config ->
-    pk:I.pk -> unit -> (Dynamo_client.item list, Dynamo_error.t) result
+    net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> Dynamodb_client.config ->
+    pk:I.pk -> unit -> (Dynamodb_client.item list, Dynamodb_error.t) result
   (** Queries every item under [pk] on this index — the [sk] is deliberately not
       a parameter here; a query that needs a sort-key condition beyond "starts
       with this partition" is real, deferred scope (see "Out of Scope"). *)
@@ -140,14 +140,14 @@ module type ENTITY = sig
 end
 
 module Entity (E : ENTITY) : sig
-  val discriminator_attribute : string  (** ["__dynamo_eio_entity__"] *)
+  val discriminator_attribute : string  (** ["__dynamodb_eio_entity__"] *)
 
-  val stamp : Dynamo_client.item -> Dynamo_client.item
-  (** Adds the discriminator attribute — call before [Dynamo_client.put_item]. *)
+  val stamp : Dynamodb_client.item -> Dynamodb_client.item
+  (** Adds the discriminator attribute — call before [Dynamodb_client.put_item]. *)
 
-  val check : Dynamo_client.item -> (Dynamo_client.item, Dynamo_error.t) result
+  val check : Dynamodb_client.item -> (Dynamodb_client.item, Dynamodb_error.t) result
   (** [Error (Wrong_entity got)] if the stamped name doesn't match [E.name] (or
-      is missing) — call after [Dynamo_client.get_item]/[query] before treating
+      is missing) — call after [Dynamodb_client.get_item]/[query] before treating
       the item as this entity's shape. *)
 end
 ```
@@ -177,10 +177,10 @@ module User_primary = struct
   let sk_attribute = "SK"
 end
 
-module Users = Dynamo_table.Index (User_primary)
-module User_entity = Dynamo_table.Entity (struct let name = "user" end)
+module Users = Dynamodb_table.Index (User_primary)
+module User_entity = Dynamodb_table.Entity (struct let name = "user" end)
 
-let config = { Dynamo_client.table = "app"; region = "us-east-1"; credentials }
+let config = { Dynamodb_client.table = "app"; region = "us-east-1"; credentials }
 
 (* let _ = Users.get ~net ~clock config ~pk:(`Email "x") ~sk:(`User "y")
    -- does not compile: `Email is User_by_email's pk type, not User_primary's *)

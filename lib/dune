@@ -1,6 +1,6 @@
 (library
- (name dynamo_eio)
- (public_name dynamo-eio)
+ (name dynamodb_eio)
+ (public_name dynamodb-eio)
  (wrapped false)
- (modules dynamo_error dynamo_value dynamo_client dynamo_table)
+ (modules dynamodb_error dynamodb_value dynamodb_client dynamodb_table)
  (libraries aws-eio eio yojson base64))

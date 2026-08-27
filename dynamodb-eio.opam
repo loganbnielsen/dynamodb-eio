@@ -12,8 +12,8 @@ error, not a runtime bug — the ElectroDB-replacement layer."""
 maintainer: ["lbendtlynielsen@gmail.com"]
 authors: ["lbendtly"]
 license: "MIT"
-homepage: "https://github.com/loganbnielsen/dynamo-eio"
-bug-reports: "https://github.com/loganbnielsen/dynamo-eio/issues"
+homepage: "https://github.com/loganbnielsen/dynamodb-eio"
+bug-reports: "https://github.com/loganbnielsen/dynamodb-eio/issues"
 depends: [
   "dune" {>= "3.0"}
   "ocaml" {>= "5.4.0"}
@@ -39,4 +39,4 @@ build: [
     "@doc" {with-doc}
   ]
 ]
-dev-repo: "git+https://github.com/loganbnielsen/dynamo-eio.git"
+dev-repo: "git+https://github.com/loganbnielsen/dynamodb-eio.git"

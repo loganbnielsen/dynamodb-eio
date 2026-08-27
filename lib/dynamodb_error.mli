@@ -1,4 +1,4 @@
-(** Error type for {!Dynamo_client}/{!Dynamo_table}, extending {!Aws_error.t}
+(** Error type for {!Dynamodb_client}/{!Dynamodb_table}, extending {!Aws_error.t}
     the same way [kafka-eio-service]'s [Kafka_error.t] extends the raw
     librdkafka codes. *)
 
@@ -18,13 +18,13 @@ type t =
           [ConsumedCapacity]-only response) — distinct from a transport or
           service-reported error. *)
   | Wrong_entity of { expected : string; got : string option }
-      (** {!Dynamo_table.Entity}'s discriminator check failed: the item's
+      (** {!Dynamodb_table.Entity}'s discriminator check failed: the item's
           stamped entity name didn't match [expected] ([got = None] means the
           discriminator attribute was missing or not a string entirely). *)
   | Invalid_config of string
       (** [config.region] failed a fail-closed CR/LF check before being used
           to build the Host header/connection target — see
-          {!Dynamo_client.validate_config}. *)
+          {!Dynamodb_client.validate_config}. *)
 
 val of_response : status:int -> body:string -> t
 (** Classify a non-2xx DynamoDB response: [ResourceNotFoundException]/

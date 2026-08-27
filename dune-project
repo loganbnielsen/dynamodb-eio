@@ -1,10 +1,10 @@
 (lang dune 3.0)
-(name dynamo-eio)
+(name dynamodb-eio)
 (version 0.1.0)
 (generate_opam_files true)
 
 (package
- (name dynamo-eio)
+ (name dynamodb-eio)
  (synopsis "Eio-native DynamoDB client with a typed indexing layer, built on aws-eio")
  (description "\
 A DynamoDB client on aws-eio (PutItem/GetItem/DeleteItem/Query, single-page),
@@ -15,9 +15,9 @@ error, not a runtime bug — the ElectroDB-replacement layer.")
  (maintainers "lbendtlynielsen@gmail.com")
  (authors "lbendtly")
  (license "MIT")
- (homepage "https://github.com/loganbnielsen/dynamo-eio")
- (bug_reports "https://github.com/loganbnielsen/dynamo-eio/issues")
- (source (github loganbnielsen/dynamo-eio))
+ (homepage "https://github.com/loganbnielsen/dynamodb-eio")
+ (bug_reports "https://github.com/loganbnielsen/dynamodb-eio/issues")
+ (source (github loganbnielsen/dynamodb-eio))
  (depends
   (ocaml (>= 5.4.0))
   (eio (>= 1.3))

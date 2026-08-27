@@ -9,18 +9,18 @@ let generic_error_body =
 
 let test_resource_not_found () =
   Alcotest.(check bool) "classifies as Resource_not_found" true
-    (match Dynamo_error.of_response ~status:400 ~body:resource_not_found_body with
+    (match Dynamodb_error.of_response ~status:400 ~body:resource_not_found_body with
      | Resource_not_found -> true
      | _ -> false)
 
 let test_conditional_check_failed () =
   Alcotest.(check bool) "classifies as Conditional_check_failed" true
-    (match Dynamo_error.of_response ~status:400 ~body:conditional_check_failed_body with
+    (match Dynamodb_error.of_response ~status:400 ~body:conditional_check_failed_body with
      | Conditional_check_failed -> true
      | _ -> false)
 
 let test_generic_service_error () =
-  match Dynamo_error.of_response ~status:400 ~body:generic_error_body with
+  match Dynamodb_error.of_response ~status:400 ~body:generic_error_body with
   | Service_error { exn_type; message } ->
     Alcotest.(check string) "exn_type" "ValidationException" exn_type;
     Alcotest.(check string) "message" "Some validation message" message
@@ -28,13 +28,13 @@ let test_generic_service_error () =
 
 let test_unparseable_body () =
   Alcotest.(check bool) "non-JSON body -> Unparseable_error_response" true
-    (match Dynamo_error.of_response ~status:500 ~body:"not json" with
+    (match Dynamodb_error.of_response ~status:500 ~body:"not json" with
      | Unparseable_error_response { status = 500; _ } -> true
      | _ -> false)
 
 let test_json_without_type_field () =
   Alcotest.(check bool) "JSON without __type -> Unparseable_error_response" true
-    (match Dynamo_error.of_response ~status:500 ~body:{|{"message":"oops"}|} with
+    (match Dynamodb_error.of_response ~status:500 ~body:{|{"message":"oops"}|} with
      | Unparseable_error_response _ -> true
      | _ -> false)
 
@@ -43,18 +43,18 @@ let test_json_without_type_field () =
    string) must not raise. *)
 let test_valid_json_non_object_does_not_raise () =
   Alcotest.(check bool) "a bare JSON array body -> Unparseable_error_response, not an exception" true
-    (match Dynamo_error.of_response ~status:503 ~body:{|["Service","Unavailable"]|} with
+    (match Dynamodb_error.of_response ~status:503 ~body:{|["Service","Unavailable"]|} with
      | Unparseable_error_response { status = 503; _ } -> true
      | _ -> false)
 
 let test_valid_json_bare_string_does_not_raise () =
   Alcotest.(check bool) "a bare JSON string body -> Unparseable_error_response, not an exception" true
-    (match Dynamo_error.of_response ~status:503 ~body:{|"Service Unavailable"|} with
+    (match Dynamodb_error.of_response ~status:503 ~body:{|"Service Unavailable"|} with
      | Unparseable_error_response { status = 503; _ } -> true
      | _ -> false)
 
 let () =
-  Alcotest.run "dynamo_error"
+  Alcotest.run "dynamodb_error"
     [ ( "of_response",
         [ Alcotest.test_case "ResourceNotFoundException -> Resource_not_found" `Quick test_resource_not_found;
           Alcotest.test_case "ConditionalCheckFailedException -> Conditional_check_failed" `Quick

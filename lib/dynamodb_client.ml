@@ -4,19 +4,19 @@ type config = {
   credentials : Aws_credentials.t;
 }
 
-type item = (string * Dynamo_value.t) list
+type item = (string * Dynamodb_value.t) list
 
 let ( let* ) = Result.bind
 
 let item_to_json (item : item) : Yojson.Safe.t =
-  `Assoc (List.map (fun (k, v) -> (k, Dynamo_value.to_json v)) item)
+  `Assoc (List.map (fun (k, v) -> (k, Dynamodb_value.to_json v)) item)
 
 let item_of_json = function
   | `Assoc fields ->
     List.fold_left
       (fun acc (k, v) ->
         let* acc = acc in
-        let* v = Dynamo_value.of_json v in
+        let* v = Dynamodb_value.of_json v in
         Ok ((k, v) :: acc))
       (Ok []) fields
     |> Result.map List.rev
@@ -26,7 +26,7 @@ let build_request_body fields = Yojson.Safe.to_string (`Assoc fields)
 
 let resolve_credentials ~net ~clock config =
   match Aws_credentials.resolve ~net ~clock config.credentials with
-  | Error e -> Error (Dynamo_error.Aws e)
+  | Error e -> Error (Dynamodb_error.Aws e)
   | Ok creds -> Ok creds
 
 let has_crlf s = String.exists (fun c -> c = '\r' || c = '\n') s
@@ -39,7 +39,7 @@ let has_crlf s = String.exists (fun c -> c = '\r' || c = '\n') s
    (the "TableName" field), safely encoded by Yojson, never spliced into a
    header line. *)
 let validate_config config =
-  if has_crlf config.region then Error (Dynamo_error.Invalid_config "region contains a CR or LF character")
+  if has_crlf config.region then Error (Dynamodb_error.Invalid_config "region contains a CR or LF character")
   else Ok ()
 
 (* aws-eio's signed_request already converts every non-2xx status into
@@ -50,13 +50,13 @@ let validate_config config =
    real network/TLS path locally either. *)
 let reclassify_transport_result :
     (int * (string * string) list * string, Aws_error.t) result ->
-    (int * (string * string) list * string, Dynamo_error.t) result = function
+    (int * (string * string) list * string, Dynamodb_error.t) result = function
   | Error (Aws_error.Http_error (status, body)) -> Ok (status, [], body)
-  | Error e -> Error (Dynamo_error.Aws e)
+  | Error e -> Error (Dynamodb_error.Aws e)
   | Ok (status, headers, body) -> Ok (status, headers, body)
 
 (* Every operation resolves credentials fresh, same rationale (and the same
-   deferred-caching gap) as s3-eio's Dynamo_client-equivalent — see
+   deferred-caching gap) as s3-eio's Dynamodb_client-equivalent — see
    dynamo-eio.md's "Out of Scope". *)
 let call ~net ~clock config ~action ~body () =
   let* () = validate_config config in
@@ -79,33 +79,33 @@ let call ~net ~clock config ~action ~body () =
    reason as s3-eio's interpret_* functions: unit-testable with synthetic
    (status, headers, body) triples, no network/TLS involved. *)
 let interpret_put (status, _headers, body) =
-  if status >= 200 && status < 300 then Ok () else Error (Dynamo_error.of_response ~status ~body)
+  if status >= 200 && status < 300 then Ok () else Error (Dynamodb_error.of_response ~status ~body)
 
 let interpret_get (status, _headers, body) =
-  if status < 200 || status >= 300 then Error (Dynamo_error.of_response ~status ~body)
+  if status < 200 || status >= 300 then Error (Dynamodb_error.of_response ~status ~body)
   else
     match Yojson.Safe.from_string body with
-    | exception _ -> Error (Dynamo_error.Malformed_response ("GetItem response is not valid JSON: " ^ body))
+    | exception _ -> Error (Dynamodb_error.Malformed_response ("GetItem response is not valid JSON: " ^ body))
     | `Assoc fields -> (
       match List.assoc_opt "Item" fields with
       | None -> Ok None
       | Some item_json -> (
         match item_of_json item_json with
         | Ok item -> Ok (Some item)
-        | Error msg -> Error (Dynamo_error.Malformed_response msg)))
-    | json -> Error (Dynamo_error.Malformed_response ("expected a JSON object, got: " ^ Yojson.Safe.to_string json))
+        | Error msg -> Error (Dynamodb_error.Malformed_response msg)))
+    | json -> Error (Dynamodb_error.Malformed_response ("expected a JSON object, got: " ^ Yojson.Safe.to_string json))
 
 let interpret_delete (status, _headers, body) =
-  if status >= 200 && status < 300 then Ok () else Error (Dynamo_error.of_response ~status ~body)
+  if status >= 200 && status < 300 then Ok () else Error (Dynamodb_error.of_response ~status ~body)
 
 let interpret_query (status, _headers, body) =
-  if status < 200 || status >= 300 then Error (Dynamo_error.of_response ~status ~body)
+  if status < 200 || status >= 300 then Error (Dynamodb_error.of_response ~status ~body)
   else
     match Yojson.Safe.from_string body with
-    | exception _ -> Error (Dynamo_error.Malformed_response ("Query response is not valid JSON: " ^ body))
+    | exception _ -> Error (Dynamodb_error.Malformed_response ("Query response is not valid JSON: " ^ body))
     | `Assoc fields -> (
       match List.assoc_opt "Items" fields with
-      | None -> Error (Dynamo_error.Malformed_response "Query response has no \"Items\" field")
+      | None -> Error (Dynamodb_error.Malformed_response "Query response has no \"Items\" field")
       | Some (`List items) -> (
         List.fold_left
           (fun acc item_json ->
@@ -114,10 +114,10 @@ let interpret_query (status, _headers, body) =
           (Ok []) items
         |> function
         | Ok items -> Ok (List.rev items)
-        | Error msg -> Error (Dynamo_error.Malformed_response msg))
+        | Error msg -> Error (Dynamodb_error.Malformed_response msg))
       | Some json ->
-        Error (Dynamo_error.Malformed_response ("\"Items\" is not a JSON array: " ^ Yojson.Safe.to_string json)))
-    | json -> Error (Dynamo_error.Malformed_response ("expected a JSON object, got: " ^ Yojson.Safe.to_string json))
+        Error (Dynamodb_error.Malformed_response ("\"Items\" is not a JSON array: " ^ Yojson.Safe.to_string json)))
+    | json -> Error (Dynamodb_error.Malformed_response ("expected a JSON object, got: " ^ Yojson.Safe.to_string json))
 
 let put_item ~net ~clock config ~item =
   let body = build_request_body [ ("TableName", `String config.table); ("Item", item_to_json item) ] in

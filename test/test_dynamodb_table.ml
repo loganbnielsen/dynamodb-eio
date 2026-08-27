@@ -28,8 +28,8 @@ module User_by_email = struct
   let sk_attribute = "GSI1SK"
 end
 
-module Primary = Dynamo_table.Index (User_primary)
-module By_email = Dynamo_table.Index (User_by_email)
+module Primary = Dynamodb_table.Index (User_primary)
+module By_email = Dynamodb_table.Index (User_by_email)
 
 (* Primary and By_email are genuinely different module instances even though
    they're structurally similar — this is really just confirming the functor
@@ -55,36 +55,36 @@ let test_get_results_empty () =
   Alcotest.(check bool) "no items -> Ok None" true (Primary.interpret_get_results [] = Ok None)
 
 let test_get_results_single_item () =
-  let item = [ ("PK", Dynamo_value.S "ORG#a"); ("SK", Dynamo_value.S "USER#b") ] in
+  let item = [ ("PK", Dynamodb_value.S "ORG#a"); ("SK", Dynamodb_value.S "USER#b") ] in
   Alcotest.(check bool) "one item -> Ok (Some item)" true (Primary.interpret_get_results [ item ] = Ok (Some item))
 
 let test_get_results_multiple_items_on_primary_fails_loud () =
-  let item1 = [ ("PK", Dynamo_value.S "ORG#a") ] and item2 = [ ("PK", Dynamo_value.S "ORG#b") ] in
+  let item1 = [ ("PK", Dynamodb_value.S "ORG#a") ] and item2 = [ ("PK", Dynamodb_value.S "ORG#b") ] in
   Alcotest.(check bool) "more than one item -> Error, not silently the first" true
     (match Primary.interpret_get_results [ item1; item2 ] with Error (Malformed_response _) -> true | _ -> false)
 
 let test_get_results_multiple_items_on_secondary_index_fails_loud () =
-  let item1 = [ ("GSI1PK", Dynamo_value.S "EMAIL#a") ] and item2 = [ ("GSI1PK", Dynamo_value.S "EMAIL#b") ] in
+  let item1 = [ ("GSI1PK", Dynamodb_value.S "EMAIL#a") ] and item2 = [ ("GSI1PK", Dynamodb_value.S "EMAIL#b") ] in
   Alcotest.(check bool) "a non-unique secondary index match also fails loud, not silently the first" true
     (match By_email.interpret_get_results [ item1; item2 ] with Error (Malformed_response _) -> true | _ -> false)
 
-module User_entity = Dynamo_table.Entity (struct
+module User_entity = Dynamodb_table.Entity (struct
   let name = "user"
 end)
 
-module Order_entity = Dynamo_table.Entity (struct
+module Order_entity = Dynamodb_table.Entity (struct
   let name = "order"
 end)
 
 let test_entity_stamp_and_check_round_trip () =
-  let item = [ ("id", Dynamo_value.S "usr_1") ] in
+  let item = [ ("id", Dynamodb_value.S "usr_1") ] in
   let stamped = User_entity.stamp item in
   match User_entity.check stamped with
-  | Error e -> Alcotest.fail (Dynamo_error.to_string e)
+  | Error e -> Alcotest.fail (Dynamodb_error.to_string e)
   | Ok item' -> Alcotest.(check bool) "stamped item still has the original field" true (item' = stamped)
 
 let test_entity_check_rejects_wrong_entity () =
-  let stamped_as_order = Order_entity.stamp [ ("id", Dynamo_value.S "ord_1") ] in
+  let stamped_as_order = Order_entity.stamp [ ("id", Dynamodb_value.S "ord_1") ] in
   Alcotest.(check bool) "checking a User_entity against an Order-stamped item fails" true
     (match User_entity.check stamped_as_order with
      | Error (Wrong_entity { expected = "user"; got = Some "order" }) -> true
@@ -92,12 +92,12 @@ let test_entity_check_rejects_wrong_entity () =
 
 let test_entity_check_rejects_missing_discriminator () =
   Alcotest.(check bool) "an item with no discriminator attribute at all fails" true
-    (match User_entity.check [ ("id", Dynamo_value.S "usr_1") ] with
+    (match User_entity.check [ ("id", Dynamodb_value.S "usr_1") ] with
      | Error (Wrong_entity { expected = "user"; got = None }) -> true
      | _ -> false)
 
 let () =
-  Alcotest.run "dynamo_table"
+  Alcotest.run "dynamodb_table"
     [ ( "Index",
         [ Alcotest.test_case "functor instances are distinct, each formats its own key shape" `Quick
             test_functor_instances_are_distinct;

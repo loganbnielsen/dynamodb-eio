@@ -1,24 +1,24 @@
 (test
- (name test_dynamo_value)
- (modules test_dynamo_value)
- (libraries dynamo_eio aws-eio alcotest yojson))
+ (name test_dynamodb_value)
+ (modules test_dynamodb_value)
+ (libraries dynamodb_eio aws-eio alcotest yojson))
 
 (test
- (name test_dynamo_error)
- (modules test_dynamo_error)
- (libraries dynamo_eio aws-eio alcotest))
+ (name test_dynamodb_error)
+ (modules test_dynamodb_error)
+ (libraries dynamodb_eio aws-eio alcotest))
 
 (test
- (name test_dynamo_client)
- (modules test_dynamo_client)
- (libraries dynamo_eio aws-eio alcotest yojson))
+ (name test_dynamodb_client)
+ (modules test_dynamodb_client)
+ (libraries dynamodb_eio aws-eio alcotest yojson))
 
 (test
- (name test_dynamo_table)
- (modules test_dynamo_table)
- (libraries dynamo_eio aws-eio alcotest))
+ (name test_dynamodb_table)
+ (modules test_dynamodb_table)
+ (libraries dynamodb_eio aws-eio alcotest))
 
 (test
- (name test_dynamo_live)
- (modules test_dynamo_live)
- (libraries dynamo_eio aws-eio alcotest eio_main))
+ (name test_dynamodb_live)
+ (modules test_dynamodb_live)
+ (libraries dynamodb_eio aws-eio alcotest eio_main))
