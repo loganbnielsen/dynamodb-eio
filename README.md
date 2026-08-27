@@ -27,7 +27,9 @@ dune runtest
 
 No external infrastructure required for the default test run. A live test
 gated by `DYNAMODB_EIO_LIVE=1` (real table + credentials required) is in
-`test/test_dynamodb_live.ml` and is skipped otherwise.
+`test/test_dynamodb_live.ml` and is skipped otherwise. `terraform/` provisions
+the dedicated table and a scoped, assume-role-only IAM role for it — see its
+header comment for usage.
 `test/negative_index_mismatch.ml.txt` documents (and was used to hand-verify)
 a compile-time guarantee — see its own header for why it isn't wired into an
 automated dune rule.

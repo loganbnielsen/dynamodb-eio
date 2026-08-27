@@ -26,3 +26,17 @@ jobs:
         run: opam exec -- dune runtest
       - name: Build docs
         run: opam exec -- dune build @doc
+
+  terraform-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+      - name: Format check
+        run: terraform -chdir=terraform fmt -check -diff
+      - name: Init (no backend, no AWS credentials needed)
+        run: terraform -chdir=terraform init -backend=false -input=false
+      - name: Validate
+        run: terraform -chdir=terraform validate
