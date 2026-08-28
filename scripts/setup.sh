@@ -42,7 +42,7 @@ cat > "$policy_file" <<EOF
     {
       "Sid": "DynamoDBLiveTestOnly",
       "Effect": "Allow",
-      "Action": ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:DeleteItem"],
+      "Action": ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:DeleteItem", "dynamodb:UpdateItem"],
       "Resource": "arn:aws:dynamodb:${REGION}:${ACCOUNT_ID}:table/${TABLE_NAME}"
     }
   ]

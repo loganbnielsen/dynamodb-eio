@@ -17,6 +17,11 @@
 - `put_item`/`delete_item` now take a trailing `()` (required once `?condition`
   became their last optional argument — OCaml can't erase an optional argument
   with no positional argument after it).
+- **Live-tested against a real table**: the version-stamp `update_item` CAS
+  round trip and a new conditional-`put_item` create-iff-missing round trip
+  (`Attribute_not_exists` succeeds once, fails `Conditional_check_failed` once
+  the item exists) both proven against real DynamoDB. `scripts/setup.sh`'s
+  inline policy was missing `dynamodb:UpdateItem` — fixed.
 
 ## 0.1.0
 
