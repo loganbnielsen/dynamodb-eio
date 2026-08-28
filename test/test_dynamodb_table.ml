@@ -1,10 +1,8 @@
-(* The negative-compilation check itself — "passing one index's key to
-   another index's functions is a type error, not a runtime bug" — lives in
-   negative_index_mismatch.ml.txt (named .txt so dune never compiles it;
-   see that file's own header for why this isn't wired into an automated
-   dune rule, and how to re-verify it by hand). What's tested here is
-   everything else: that the positive path (matching index/key pairs)
-   actually works, and Entity's discriminator check. *)
+(* The negative-compile check ("passing one index's key to another index's
+   functions is a type error") lives in negative_index_mismatch.ml.txt
+   (named .txt so dune never compiles it — see its header for how to
+   re-verify by hand). This file tests everything else: the positive path
+   and Entity's discriminator check. *)
 
 module User_primary = struct
   type pk = [ `Org of string ]
@@ -31,21 +29,16 @@ end
 module Primary = Dynamodb_table.Index (User_primary)
 module By_email = Dynamodb_table.Index (User_by_email)
 
-(* Primary and By_email are genuinely different module instances even though
-   they're structurally similar — this is really just confirming the functor
-   applies and the resulting modules have the expected shape; the interesting
-   type-level guarantee (a mismatched pk type is a compile error) can't be
-   expressed as a runtime test at all, hence the separate negative-compile
-   check. *)
+(* Confirms the functor applies and produces distinct module shapes; the
+   real type-level guarantee (mismatched pk is a compile error) can't be
+   expressed as a runtime test — hence the separate negative-compile check. *)
 let test_functor_instances_are_distinct () =
   Alcotest.(check string) "User_primary formats its own pk shape" "ORG#acme" (User_primary.format_pk (`Org "acme"));
   Alcotest.(check string) "User_by_email formats its own pk shape" "EMAIL#a@example.com"
     (User_by_email.format_pk (`Email "a@example.com"));
-  (* Referencing both Index applications at all proves they typecheck
-     side by side with genuinely different pk/sk types — if the design's
-     "one nominal type per index" claim were wrong (e.g. if pk/sk collapsed
-     to a shared type), this file would already fail to compile the way the
-     negative-compile check deliberately does. *)
+  (* Referencing both applications together proves they typecheck side by
+     side with distinct pk/sk types — if types collapsed, this would fail
+     to compile like the negative-compile check does. *)
   ignore (Primary.get, Primary.query, By_email.get, By_email.query)
 
 (* DynamoDB doesn't enforce pk+sk uniqueness on a secondary index the way

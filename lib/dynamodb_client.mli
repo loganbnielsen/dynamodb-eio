@@ -26,11 +26,9 @@ val query :
   ?index_name:string ->
   ?expression_attribute_names:(string * string) list
       (** ["#name" -> "real_attribute_name"] aliases for
-          [key_condition_expression] — DynamoDB reserves ~600 words
-          (["Name"], ["Status"], ["Data"], ... — the full list is in AWS's
-          own docs) that cannot appear literally in an expression; aliasing
-          every attribute name through a placeholder avoids the caller
-          needing to know that reserved-word list. *)
+          [key_condition_expression] — DynamoDB reserves ~600 words that
+          can't appear literally in an expression; aliasing avoids the
+          caller needing to know that list. *)
   -> key_condition_expression:string ->
   expression_attribute_values:item ->
   unit ->
@@ -43,9 +41,7 @@ val query :
 
 val build_request_body : (string * Yojson.Safe.t) list -> string
 (** The exact JSON body an operation signs and sends, given its
-    action-specific fields (["TableName"], ["Item"]/["Key"]/etc. — this
-    package's operations add those; this just serializes the final
-    [`Assoc]). *)
+    action-specific fields (["TableName"], ["Item"]/["Key"]/etc.). *)
 
 val item_to_json : item -> Yojson.Safe.t
 val item_of_json : Yojson.Safe.t -> (item, string) result

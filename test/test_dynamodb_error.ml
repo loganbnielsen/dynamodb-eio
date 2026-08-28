@@ -38,9 +38,8 @@ let test_json_without_type_field () =
      | Unparseable_error_response _ -> true
      | _ -> false)
 
-(* of_response is documented as a pure, always-Result classifier, so a
-   non-2xx body that's valid JSON but not an object (e.g. a bare array or
-   string) must not raise. *)
+(* of_response must not raise on non-2xx bodies that are valid JSON but not
+   an object (bare array/string). *)
 let test_valid_json_non_object_does_not_raise () =
   Alcotest.(check bool) "a bare JSON array body -> Unparseable_error_response, not an exception" true
     (match Dynamodb_error.of_response ~status:503 ~body:{|["Service","Unavailable"]|} with

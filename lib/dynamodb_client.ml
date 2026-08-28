@@ -31,23 +31,17 @@ let resolve_credentials ~net ~clock config =
 
 let has_crlf s = String.exists (fun c -> c = '\r' || c = '\n') s
 
-(* config.region is spliced unvalidated into the Host header/connection
-   target (Printf.sprintf "dynamodb.%s.amazonaws.com" config.region) — the
-   same CRLF-header-injection class of bug already found and fixed in
-   s3-eio's validate_config, not originally carried over here. table isn't
-   part of this check: it only ever appears inside the JSON request body
-   (the "TableName" field), safely encoded by Yojson, never spliced into a
-   header line. *)
+(* config.region is spliced unvalidated into the Host header — CRLF
+   injection risk if unchecked. table isn't checked: it only appears in the
+   JSON body, safely encoded by Yojson. *)
 let validate_config config =
   if has_crlf config.region then Error (Dynamodb_error.Invalid_config "region contains a CR or LF character")
   else Ok ()
 
-(* aws-eio's signed_request already converts every non-2xx status into
-   Error (Http_error (status, body)) before returning — the same dead-code
-   finding as s3-eio's (interpret_*'s non-2xx branches were unreachable
-   through the real call path). Factored out as its own pure, testable
-   function for the same reason: this package's tests can't exercise the
-   real network/TLS path locally either. *)
+(* aws-eio's signed_request already turns non-2xx into Error before
+   returning; this re-threads it into Ok so interpret_*'s non-2xx branches
+   are actually reachable. Pure and separate so it's testable without a
+   real network/TLS path. *)
 let reclassify_transport_result :
     (int * (string * string) list * string, Aws_error.t) result ->
     (int * (string * string) list * string, Dynamodb_error.t) result = function
@@ -55,8 +49,7 @@ let reclassify_transport_result :
   | Error e -> Error (Dynamodb_error.Aws e)
   | Ok (status, headers, body) -> Ok (status, headers, body)
 
-(* Every operation resolves credentials fresh, same rationale (and the same
-   deferred-caching gap) as s3-eio's Dynamodb_client-equivalent — see
+(* Credentials are resolved fresh on every call — no caching; see
    dynamo-eio.md's "Out of Scope". *)
 let call ~net ~clock config ~action ~body () =
   let* () = validate_config config in
@@ -75,9 +68,8 @@ let call ~net ~clock config ~action ~body () =
        ~region:config.region ~service:"dynamodb" ~normalize_path:true
        ~meth:`POST ~host ~path:"/" ~extra_headers ~body ())
 
-(* Response interpretation is pure and separated from call for the same
-   reason as s3-eio's interpret_* functions: unit-testable with synthetic
-   (status, headers, body) triples, no network/TLS involved. *)
+(* Pure and separate from call so it's unit-testable with synthetic
+   (status, headers, body) triples. *)
 let interpret_put (status, _headers, body) =
   if status >= 200 && status < 300 then Ok () else Error (Dynamodb_error.of_response ~status ~body)
 

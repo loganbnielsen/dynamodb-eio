@@ -1,7 +1,5 @@
-(* aws-eio's signed_request converts every non-2xx status into
-   Error (Http_error (status, body)) before returning; reclassify_transport_result
-   restores it so a ResourceNotFoundException still classifies as
-   Resource_not_found through the real call path. *)
+(* reclassify_transport_result restores Ok on non-2xx so a
+   ResourceNotFoundException still classifies as Resource_not_found. *)
 let test_reclassify_then_interpret_get () =
   let body = {|{"__type":"com.amazonaws.dynamodb.v20120810#ResourceNotFoundException","message":"x"}|} in
   let transport_result : (int * (string * string) list * string, Aws_error.t) result =
@@ -38,8 +36,7 @@ let test_validate_config_accepts_normal_config () =
   in
   Alcotest.(check bool) "ordinary config passes" true (Result.is_ok (Dynamodb_client.validate_config config))
 
-(* interpret_* mappers are pure, same rationale as s3-eio's — see
-   dynamo-eio.md's design notes: no network/TLS needed to test how a
+(* interpret_* mappers are pure — no network/TLS needed to test how a
    (status, headers, body) triple maps to a result. *)
 
 let test_interpret_put_success () =
