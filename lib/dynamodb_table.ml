@@ -10,11 +10,9 @@ module type INDEX = sig
 end
 
 module Index (I : INDEX) = struct
-  (* DynamoDB only guarantees pk+sk uniqueness on a table's own primary key
-     (I.index_name = None), not on secondary indexes — a fully-specified
-     pk+sk can legitimately match more than one item there. Fail loud rather
-     than silently return the first match; callers needing every match on a
-     non-unique index should use query, not get. *)
+  (* DynamoDB only guarantees pk+sk uniqueness on the primary key, not on
+     secondary indexes, so more than one item can match here. Fail loud
+     rather than silently returning the first match — use query instead. *)
   let interpret_get_results = function
     | [] -> Ok None
     | [ item ] -> Ok (Some item)

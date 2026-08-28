@@ -15,11 +15,9 @@ let exception_name full_type =
   | Some i -> String.sub full_type (i + 1) (String.length full_type - i - 1)
   | None -> full_type
 
-(* Avoids Yojson.Safe.Util's member/to_string_option: those raise Type_error
-   on anything that isn't the exact shape expected (a bare JSON array or
-   string, not an object) — Yojson.Safe.from_string succeeding only proves
-   body is *some* valid JSON. Plain List.assoc_opt pattern matching below
-   never raises, keeping this a pure, always-Result classifier. *)
+(* Avoids Yojson.Safe.Util's member/to_string_option, which raise on
+   unexpected shapes; plain List.assoc_opt matching keeps this a pure,
+   always-Result classifier. *)
 let of_response ~status ~body =
   match Yojson.Safe.from_string body with
   | exception _ -> Unparseable_error_response { status; body }

@@ -1,6 +1,6 @@
-(* Live DynamoDB smoke test, same shape as s3-eio's and aws-eio's. Skipped
-   entirely unless DYNAMODB_EIO_LIVE=1 is set: the default `dune runtest`
-   must never touch a real AWS account or table.
+(* Live DynamoDB smoke test. Skipped entirely unless DYNAMODB_EIO_LIVE=1 is
+   set: the default `dune runtest` must never touch a real AWS account or
+   table.
 
    Required environment: DYNAMODB_EIO_LIVE=1, DYNAMODB_EIO_LIVE_TABLE=<a table
    you control, primary key: partition "pk" (S), sort "sk" (S)>, plus

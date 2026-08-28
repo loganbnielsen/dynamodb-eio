@@ -25,19 +25,11 @@ module Index (I : INDEX) : sig
   val get :
     net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> Dynamodb_client.config ->
     pk:I.pk -> sk:I.sk -> (Dynamodb_client.item option, Dynamodb_error.t) result
-  (** Implemented as a [Query] with an equality key condition on both [pk]
-      and [sk] — {!Dynamodb_client}'s [get_item] only works against the
-      table's primary key, and DynamoDB simply has no [GetItem]-by-
-      secondary-index operation, so [Query] is the only correct mechanism
-      for either case.
-
-      [Error (Malformed_response _)] if more than one item matches:
-      DynamoDB only guarantees pk+sk uniqueness on the table's own primary
-      key ([I.index_name = None]); it does {e not} enforce uniqueness on a
-      global/local secondary index, so a fully-specified key can
-      legitimately match more than one item there. Use {!query} instead of
-      [get] on an index where that can happen — [get] fails loud rather
-      than silently returning one arbitrary match. *)
+  (** Implemented as [Query] with an equality condition on [pk] and [sk] —
+      DynamoDB has no [GetItem] for a secondary index. [Error
+      (Malformed_response _)] if more than one item matches: secondary
+      indexes don't enforce pk+sk uniqueness, so use {!query} instead of
+      [get] where that's possible. *)
 
   val interpret_get_results : Dynamodb_client.item list -> (Dynamodb_client.item option, Dynamodb_error.t) result
   (** [get]'s pure result-interpretation step, exposed for testing — no
