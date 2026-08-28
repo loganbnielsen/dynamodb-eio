@@ -1,6 +1,6 @@
-(** Raw DynamoDB operations on top of [aws-eio]. See [dynamo-eio.md] for wire
-    protocol details and what v1 deliberately leaves out (pagination, update
-    expressions, conditional writes, batch/transactions). *)
+(** Raw DynamoDB operations on top of [aws-eio]. See the project README's "Wire
+    protocol" and "Out of Scope" sections for wire protocol details and what
+    v1 deliberately leaves out (pagination, batch operations, transactions). *)
 
 type config = {
   table : string;
@@ -88,7 +88,7 @@ val query :
   (item list, Dynamodb_error.t) result
 (** Single page only — does not read [LastEvaluatedKey]. A query whose real
     result set exceeds DynamoDB's 1MB-per-page limit silently returns only
-    the first page; see [dynamo-eio.md]'s "Out of Scope". *)
+    the first page; see the project README's "Out of Scope" section. *)
 
 (** {2 Exposed for testing} *)
 

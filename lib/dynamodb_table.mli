@@ -1,5 +1,5 @@
-(** The typed indexing layer — see [dynamo-eio.md]'s "the ElectroDB-replacement
-    layer" section for the design rationale. One functor application per
+(** The typed indexing layer — see the project README's "Overview" section
+    for the ElectroDB-replacement design rationale. One functor application per
     index (primary or secondary); passing one index's key to another index's
     functions is a type error, not a runtime bug. *)
 
@@ -41,7 +41,8 @@ module Index (I : INDEX) : sig
     pk:I.pk -> unit -> (Dynamodb_client.item list, Dynamodb_error.t) result
   (** Every item under [pk] on this index. [sk] is deliberately not a
       parameter — a query needing a sort-key condition beyond "every item in
-      this partition" is real, deferred scope; see [dynamo-eio.md]. *)
+      this partition" is real, deferred scope; see the project README's
+      "Out of Scope" section. *)
 end
 
 module type ENTITY = sig
