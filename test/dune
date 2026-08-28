@@ -11,7 +11,7 @@
 (test
  (name test_dynamodb_client)
  (modules test_dynamodb_client)
- (libraries dynamodb_eio aws-eio alcotest yojson))
+ (libraries dynamodb_eio aws-eio alcotest yojson eio_main))
 
 (test
  (name test_dynamodb_table)

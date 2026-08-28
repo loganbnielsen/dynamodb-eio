@@ -13,7 +13,10 @@ fix in `aws-eio` itself ([`aws-eio#5`](https://github.com/loganbnielsen/aws-eio/
 though DynamoDB itself doesn't require the header that fix adds (S3 does;
 that's how it was originally caught). `scripts/setup.sh`/`teardown.sh`
 provision a real table for this in your own AWS account — see their headers
-for usage.
+for usage. A version-stamp conditional-update CAS round trip (`update_item`
+succeeds once, then fails `Conditional_check_failed` on the same now-stale
+condition) has been added to the same live test but **not yet run against a
+real table** — needs a real `DYNAMODB_EIO_LIVE=1` pass to confirm.
 
 ## Build
 
@@ -97,9 +100,42 @@ val of_json : Yojson.Safe.t -> (t, string) result
 type config = { table : string; region : string; credentials : Aws_credentials.t }
 type item = (string * Dynamodb_value.t) list
 
-val put_item : net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> item:item -> (unit, Dynamodb_error.t) result
+(* The small compare-and-swap surface DynamoDB's optimistic-locking idioms actually
+   need — not a full expression DSL. Add between/begins_with/comparisons if a caller
+   ever needs them. *)
+type condition =
+  | Attribute_exists of string
+  | Attribute_not_exists of string       (* "create iff missing" *)
+  | Equals of string * Dynamodb_value.t  (* the version-stamp CAS idiom *)
+  | Not_equals of string * Dynamodb_value.t
+  | And of condition * condition
+  | Or of condition * condition
+
+type update_op =
+  | Set of string * Dynamodb_value.t
+  | Increment of string * string  (* string, not int: N is already decimal-string-encoded *)
+  | Remove of string
+  | Add of string * Dynamodb_value.t
+  | Delete of string * Dynamodb_value.t
+
+val put_item :
+  net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> ?condition:condition -> item:item -> unit ->
+  (unit, Dynamodb_error.t) result
 val get_item : net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> key:item -> (item option, Dynamodb_error.t) result
-val delete_item : net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> key:item -> (unit, Dynamodb_error.t) result
+val delete_item :
+  net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> ?condition:condition -> key:item -> unit ->
+  (unit, Dynamodb_error.t) result
+val update_item :
+  net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> ?condition:condition -> key:item ->
+  updates:update_op list -> unit -> (unit, Dynamodb_error.t) result
+(** [Error Empty_updates] if [updates = []], checked before any request is built.
+    A [condition] that doesn't hold comes back as [Error Conditional_check_failed] —
+    distinguishable from every other failure, so a caller can retry-or-abort
+    specifically on a lost race. A single [update_item] call's [condition] and
+    [updates] compile through one shared [#n]/[:v] alias allocator, so they can
+    never collide on the same placeholder even when they reference the same
+    attribute (e.g. a version-stamp CAS: `condition:(Equals ("version", N "5"))`
+    alongside `updates:[ Increment ("version", "1") ]`). *)
 
 val query :
   net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config ->
@@ -193,10 +229,6 @@ let config = { Dynamodb_client.table = "app"; region = "us-east-1"; credentials 
 
 ## Out of Scope (v1)
 
-- **Update expressions** (`SET`/`REMOVE`/`ADD` attribute-path syntax) —
-  `put_item` (full-item replace) covers v1.
-- **Conditional writes / optimistic locking** (`ConditionExpression`) — real,
-  deferred v2 scope, not a thin passthrough bolted onto v1's `put_item`.
 - **Pagination** (`LastEvaluatedKey`) — needs a typed cursor to avoid
   ElectroDB's own pagination footgun (a cursor silently valid for the wrong
   index/query); real design work, not done here. `query` in v1 always returns

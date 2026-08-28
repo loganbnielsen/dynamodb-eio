@@ -7,6 +7,7 @@ type t =
   | Malformed_response of string
   | Wrong_entity of { expected : string; got : string option }
   | Invalid_config of string
+  | Empty_updates
 
 (* "__type" is namespaced, e.g. "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException"
    — the part after '#' is the actual exception name. *)
@@ -48,3 +49,4 @@ let to_string = function
     Printf.sprintf "wrong entity: expected %S, got %s" expected
       (match got with Some g -> Printf.sprintf "%S" g | None -> "no discriminator attribute")
   | Invalid_config msg -> "invalid dynamo-eio config: " ^ msg
+  | Empty_updates -> "update_item requires at least one update_op"

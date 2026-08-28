@@ -6,6 +6,21 @@ type config = {
 
 type item = (string * Dynamodb_value.t) list
 
+type condition =
+  | Attribute_exists of string
+  | Attribute_not_exists of string
+  | Equals of string * Dynamodb_value.t
+  | Not_equals of string * Dynamodb_value.t
+  | And of condition * condition
+  | Or of condition * condition
+
+type update_op =
+  | Set of string * Dynamodb_value.t
+  | Increment of string * string
+  | Remove of string
+  | Add of string * Dynamodb_value.t
+  | Delete of string * Dynamodb_value.t
+
 let ( let* ) = Result.bind
 
 let item_to_json (item : item) : Yojson.Safe.t =
@@ -23,6 +38,98 @@ let item_of_json = function
   | json -> Error ("expected a JSON object for a DynamoDB item, got: " ^ Yojson.Safe.to_string json)
 
 let build_request_body fields = Yojson.Safe.to_string (`Assoc fields)
+
+(* Shared [#n]/[:v] allocator: threaded through both compile_condition and
+   compile_updates for a single update_item/put_item/delete_item call so a
+   ConditionExpression and an UpdateExpression sharing one request can never
+   hand out a colliding alias, even when they reference the same attribute. *)
+type alias_state = {
+  mutable next_n : int;
+  mutable next_v : int;
+  mutable names : (string * string) list;  (* alias -> real attribute name *)
+  mutable values : (string * Dynamodb_value.t) list;  (* alias -> value *)
+}
+
+let new_alias_state () = { next_n = 0; next_v = 0; names = []; values = [] }
+
+let alias_name state attr =
+  let alias = Printf.sprintf "#n%d" state.next_n in
+  state.next_n <- state.next_n + 1;
+  state.names <- (alias, attr) :: state.names;
+  alias
+
+let alias_value state v =
+  let alias = Printf.sprintf ":v%d" state.next_v in
+  state.next_v <- state.next_v + 1;
+  state.values <- (alias, v) :: state.values;
+  alias
+
+let alias_fields state =
+  (if state.names = [] then []
+   else [ ("ExpressionAttributeNames", `Assoc (List.map (fun (alias, attr) -> (alias, `String attr)) state.names)) ])
+  @ (if state.values = [] then [] else [ ("ExpressionAttributeValues", item_to_json (List.rev state.values)) ])
+
+(* Every branch below binds its sub-results with `let` before formatting them
+   into one string, rather than calling alias_name/alias_value (or a
+   recursive compile_condition) directly as Printf.sprintf arguments — OCaml
+   does not guarantee left-to-right argument evaluation order, and these
+   calls mutate `state`'s counters, so evaluating them as bare sprintf
+   arguments would make the #n/:v numbering (still correct, just
+   unpredictable) depend on unspecified evaluation order. *)
+let rec compile_condition state = function
+  | Attribute_exists attr ->
+    let n = alias_name state attr in
+    Printf.sprintf "attribute_exists(%s)" n
+  | Attribute_not_exists attr ->
+    let n = alias_name state attr in
+    Printf.sprintf "attribute_not_exists(%s)" n
+  | Equals (attr, v) ->
+    let n = alias_name state attr in
+    let value = alias_value state v in
+    Printf.sprintf "%s = %s" n value
+  | Not_equals (attr, v) ->
+    let n = alias_name state attr in
+    let value = alias_value state v in
+    Printf.sprintf "%s <> %s" n value
+  | And (a, b) ->
+    let ea = compile_condition state a in
+    let eb = compile_condition state b in
+    Printf.sprintf "(%s) AND (%s)" ea eb
+  | Or (a, b) ->
+    let ea = compile_condition state a in
+    let eb = compile_condition state b in
+    Printf.sprintf "(%s) OR (%s)" ea eb
+
+(* Grouped by keyword, per DynamoDB's UpdateExpression grammar: each of
+   SET/REMOVE/ADD/DELETE may appear at most once in the whole expression, so
+   every op of a given kind folds into that one clause rather than repeating
+   the keyword per op. *)
+let compile_updates state ops =
+  let sets = ref [] and removes = ref [] and adds = ref [] and deletes = ref [] in
+  List.iter
+    (function
+      | Set (attr, v) ->
+        let n = alias_name state attr in
+        let value = alias_value state v in
+        sets := Printf.sprintf "%s = %s" n value :: !sets
+      | Increment (attr, delta) ->
+        let n = alias_name state attr in
+        let v = alias_value state (Dynamodb_value.N delta) in
+        sets := Printf.sprintf "%s = %s + %s" n n v :: !sets
+      | Remove attr -> removes := alias_name state attr :: !removes
+      | Add (attr, v) ->
+        let n = alias_name state attr in
+        let value = alias_value state v in
+        adds := Printf.sprintf "%s %s" n value :: !adds
+      | Delete (attr, v) ->
+        let n = alias_name state attr in
+        let value = alias_value state v in
+        deletes := Printf.sprintf "%s %s" n value :: !deletes)
+    ops;
+  [ ("SET", !sets); ("REMOVE", !removes); ("ADD", !adds); ("DELETE", !deletes) ]
+  |> List.filter_map (fun (keyword, items) ->
+       match List.rev items with [] -> None | items -> Some (keyword ^ " " ^ String.concat ", " items))
+  |> String.concat " "
 
 let resolve_credentials ~net ~clock config =
   match Aws_credentials.resolve ~net ~clock config.credentials with
@@ -90,6 +197,9 @@ let interpret_get (status, _headers, body) =
 let interpret_delete (status, _headers, body) =
   if status >= 200 && status < 300 then Ok () else Error (Dynamodb_error.of_response ~status ~body)
 
+let interpret_update (status, _headers, body) =
+  if status >= 200 && status < 300 then Ok () else Error (Dynamodb_error.of_response ~status ~body)
+
 let interpret_query (status, _headers, body) =
   if status < 200 || status >= 300 then Error (Dynamodb_error.of_response ~status ~body)
   else
@@ -111,8 +221,18 @@ let interpret_query (status, _headers, body) =
         Error (Dynamodb_error.Malformed_response ("\"Items\" is not a JSON array: " ^ Yojson.Safe.to_string json)))
     | json -> Error (Dynamodb_error.Malformed_response ("expected a JSON object, got: " ^ Yojson.Safe.to_string json))
 
-let put_item ~net ~clock config ~item =
-  let body = build_request_body [ ("TableName", `String config.table); ("Item", item_to_json item) ] in
+let condition_fields state = function
+  | None -> []
+  | Some c ->
+    let expr = compile_condition state c in
+    ("ConditionExpression", `String expr) :: alias_fields state
+
+let put_item ~net ~clock config ?condition ~item () =
+  let state = new_alias_state () in
+  let body =
+    build_request_body
+      ([ ("TableName", `String config.table); ("Item", item_to_json item) ] @ condition_fields state condition)
+  in
   match call ~net ~clock config ~action:"PutItem" ~body () with
   | Error _ as e -> e
   | Ok r -> interpret_put r
@@ -123,11 +243,35 @@ let get_item ~net ~clock config ~key =
   | Error _ as e -> e
   | Ok r -> interpret_get r
 
-let delete_item ~net ~clock config ~key =
-  let body = build_request_body [ ("TableName", `String config.table); ("Key", item_to_json key) ] in
+let delete_item ~net ~clock config ?condition ~key () =
+  let state = new_alias_state () in
+  let body =
+    build_request_body
+      ([ ("TableName", `String config.table); ("Key", item_to_json key) ] @ condition_fields state condition)
+  in
   match call ~net ~clock config ~action:"DeleteItem" ~body () with
   | Error _ as e -> e
   | Ok r -> interpret_delete r
+
+let update_item ~net ~clock config ?condition ~key ~updates () =
+  if updates = [] then Error Dynamodb_error.Empty_updates
+  else
+    let state = new_alias_state () in
+    let update_expression = compile_updates state updates in
+    let condition_expression =
+      match condition with Some c -> [ ("ConditionExpression", `String (compile_condition state c)) ] | None -> []
+    in
+    let body =
+      build_request_body
+        ([ ("TableName", `String config.table);
+           ("Key", item_to_json key);
+           ("UpdateExpression", `String update_expression);
+         ]
+        @ condition_expression @ alias_fields state)
+    in
+    match call ~net ~clock config ~action:"UpdateItem" ~body () with
+    | Error _ as e -> e
+    | Ok r -> interpret_update r
 
 let query ~net ~clock config ?index_name ?expression_attribute_names ~key_condition_expression
     ~expression_attribute_values () =
