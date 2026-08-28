@@ -120,6 +120,35 @@ let test_conditional_update_cas () =
         | Error e -> Alcotest.failf "expected Conditional_check_failed, got: %s" (Dynamodb_error.to_string e)
         | Ok () -> Alcotest.fail "stale condition should not have matched")
 
+(* "Create iff missing" — the other named idiom conditional writes exist for,
+   distinct from update_item's version-stamp CAS: Attribute_not_exists on
+   put_item succeeds once, then fails once the item exists, so two
+   concurrent "create if not there" callers can't both believe they won. *)
+let test_conditional_put_create_iff_missing () =
+  if not (live_enabled ()) then
+    Printf.printf "[skip] DYNAMODB_EIO_LIVE not set to 1 — skipping live DynamoDB smoke test\n%!"
+  else
+    Eio_main.run @@ fun env ->
+    let net = env#net and clock = env#clock in
+    let config = config () in
+    let key = [ ("pk", Dynamodb_value.S "sun-live-test#dynamodb-eio-create-iff-missing"); ("sk", Dynamodb_value.S "item") ] in
+    let item = key @ [ ("created_by", Dynamodb_value.S "first-writer") ] in
+    Fun.protect
+      ~finally:(fun () -> ignore (Dynamodb_client.delete_item ~net ~clock config ~key ()))
+      (fun () ->
+        (match Dynamodb_client.put_item ~net ~clock config ~condition:(Attribute_not_exists "pk") ~item () with
+        | Error e -> Alcotest.failf "first create-iff-missing put expected to succeed, got: %s" (Dynamodb_error.to_string e)
+        | Ok () -> ());
+        (* Same condition again — must fail now that the item exists, not silently
+           overwrite whichever writer actually created it first. *)
+        let second_item = key @ [ ("created_by", Dynamodb_value.S "second-writer") ] in
+        match
+          Dynamodb_client.put_item ~net ~clock config ~condition:(Attribute_not_exists "pk") ~item:second_item ()
+        with
+        | Error Conditional_check_failed -> ()
+        | Error e -> Alcotest.failf "expected Conditional_check_failed, got: %s" (Dynamodb_error.to_string e)
+        | Ok () -> Alcotest.fail "second create-iff-missing put should not have succeeded")
+
 let () =
   Alcotest.run "dynamodb_live"
     [ ( "smoke",
@@ -127,5 +156,7 @@ let () =
           Alcotest.test_case "known-missing key returns None" `Quick test_missing_key_returns_none;
           Alcotest.test_case "conditional update: CAS succeeds then fails on stale version" `Quick
             test_conditional_update_cas;
+          Alcotest.test_case "conditional put: create-iff-missing succeeds then fails once it exists" `Quick
+            test_conditional_put_create_iff_missing;
         ] );
     ]

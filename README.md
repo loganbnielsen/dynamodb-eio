@@ -7,16 +7,17 @@ this exists, not just a raw API binding.
 Originally developed inside the [Sun](https://github.com/loganbnielsen/sun)
 platform, and extracted here to be usable standalone.
 
-**Live-tested successfully** (`test/test_dynamodb_live.ml`, put/get/delete
-round trip + the missing-key path) against a real table — this required a
-fix in `aws-eio` itself ([`aws-eio#5`](https://github.com/loganbnielsen/aws-eio/pull/5)),
-though DynamoDB itself doesn't require the header that fix adds (S3 does;
-that's how it was originally caught). `scripts/setup.sh`/`teardown.sh`
-provision a real table for this in your own AWS account — see their headers
-for usage. A version-stamp conditional-update CAS round trip (`update_item`
-succeeds once, then fails `Conditional_check_failed` on the same now-stale
-condition) has been added to the same live test but **not yet run against a
-real table** — needs a real `DYNAMODB_EIO_LIVE=1` pass to confirm.
+**Live-tested successfully** (`test/test_dynamodb_live.ml`) against a real
+table: put/get/delete round trip, the missing-key path, a version-stamp
+conditional-`update_item` CAS round trip (succeeds once, then fails
+`Conditional_check_failed` on the same now-stale condition), and a
+conditional `put_item` create-iff-missing round trip (succeeds once, then
+fails `Conditional_check_failed` once the item exists). The first of these
+required a fix in `aws-eio` itself
+([`aws-eio#5`](https://github.com/loganbnielsen/aws-eio/pull/5)), though
+DynamoDB itself doesn't require the header that fix adds (S3 does; that's how
+it was originally caught). `scripts/setup.sh`/`teardown.sh` provision a real
+table for this in your own AWS account — see their headers for usage.
 
 ## Build
 
