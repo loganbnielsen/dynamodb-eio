@@ -25,6 +25,10 @@ type t =
       (** [config.region] failed a fail-closed CR/LF check before being used
           to build the Host header/connection target — see
           {!Dynamodb_client.validate_config}. *)
+  | Empty_updates
+      (** {!Dynamodb_client.update_item} was called with an empty [updates]
+          list — DynamoDB requires a non-empty [UpdateExpression]; rejected
+          before a request is ever built. *)
 
 val of_response : status:int -> body:string -> t
 (** Classify a non-2xx DynamoDB response: [ResourceNotFoundException]/
