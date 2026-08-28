@@ -141,8 +141,10 @@ val update_item :
 val query :
   net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config ->
   ?index_name:string ->
+  ?expression_attribute_names:(string * string) list ->
   key_condition_expression:string ->
   expression_attribute_values:item ->
+  unit ->
   (item list, Dynamodb_error.t) result
 (** Single page only — v1 does not read [LastEvaluatedKey]. A query whose real result
     set exceeds DynamoDB's 1MB-per-page limit silently returns only the first page; see
