@@ -22,6 +22,18 @@
   (`Attribute_not_exists` succeeds once, fails `Conditional_check_failed` once
   the item exists) both proven against real DynamoDB. `scripts/setup.sh`'s
   inline policy was missing `dynamodb:UpdateItem` — fixed.
+- Added explicit Query pagination: `Dynamodb_client.query_page` returns one
+  page plus `LastEvaluatedKey`, while `query_all` drains every page. The typed
+  index layer mirrors this as `Index.query_page`/`Index.query_all`.
+- Caller-provided items/keys/cursors now reject duplicate attribute names with
+  `Invalid_request` before building ambiguous JSON. `Entity.stamp` is
+  idempotent and replaces any existing discriminator.
+- `Dynamodb_client` now captures Eio capabilities in a client handle:
+  `create ~net ~clock config`, then operations take that handle instead of
+  repeating `~net ~clock config`.
+- Public-API cleanup: request builders, JSON codecs, response interpreters,
+  validators, expression compiler internals, and `Index.interpret_get_results`
+  are private implementation details rather than installed interface symbols.
 
 ## 0.1.0
 

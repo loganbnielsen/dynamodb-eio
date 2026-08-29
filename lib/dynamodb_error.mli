@@ -1,4 +1,4 @@
-(** Error type for {!Dynamodb_client}/{!Dynamodb_table}, extending {!Aws_error.t}
+(** Error type for {!Dynamodb_client}/{!Dynamodb_table}, extending [Aws_error.t]
     the same way [kafka-eio-service]'s [Kafka_error.t] extends the raw
     librdkafka codes. *)
 
@@ -23,8 +23,10 @@ type t =
           discriminator attribute was missing or not a string entirely). *)
   | Invalid_config of string
       (** [config.region] failed a fail-closed CR/LF check before being used
-          to build the Host header/connection target — see
-          {!Dynamodb_client.validate_config}. *)
+          to build the Host header/connection target. *)
+  | Invalid_request of string
+      (** A caller-provided item/key/cursor/limit was rejected before any
+          request was sent. *)
   | Empty_updates
       (** {!Dynamodb_client.update_item} was called with an empty [updates]
           list — DynamoDB requires a non-empty [UpdateExpression]; rejected

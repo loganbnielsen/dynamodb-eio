@@ -7,11 +7,11 @@
  (name dynamodb-eio)
  (synopsis "Eio-native DynamoDB client with a typed indexing layer, built on aws-eio")
  (description "\
-A DynamoDB client on aws-eio (PutItem/GetItem/DeleteItem/UpdateItem/Query,
-single-page), with typed conditional writes (a small compare-and-swap surface:
+A DynamoDB client on aws-eio (PutItem/GetItem/DeleteItem/UpdateItem/Query),
+with paginated Query support, typed conditional writes (a small compare-and-swap surface:
 create-iff-missing, version-stamp CAS) on PutItem/DeleteItem/UpdateItem, plus a
 typed indexing layer: one module per index, each carrying its own nominally
-distinct pk/sk types, generating its own typed get/query via a functor.
+distinct pk/sk types, generating its own typed get/query_page/query_all via a functor.
 Passing one index's key to another index's functions is a type error, not a
 runtime bug — the ElectroDB-replacement layer.")
  (maintainers "lbendtlynielsen@gmail.com")

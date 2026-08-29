@@ -54,7 +54,7 @@ an error), and querying an index with the wrong key shape is a runtime
 failure, not a compile error.
 
 `dynamodb-eio` fixes this with one module per index, each carrying its own
-nominally distinct `pk`/`sk` types, generating its own typed `get`/`query` via
+nominally distinct `pk`/`sk` types, generating its own typed `get`/`query_page`/`query_all` via
 a functor — the same shape as a table-per-schema functor, applied once per
 index instead of once per table. Passing one index's key to another index's
 functions is a **type error**, not a runtime bug.
@@ -120,14 +120,14 @@ type update_op =
   | Delete of string * Dynamodb_value.t
 
 val put_item :
-  net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> ?condition:condition -> item:item -> unit ->
+  t -> ?condition:condition -> item:item -> unit ->
   (unit, Dynamodb_error.t) result
-val get_item : net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> key:item -> (item option, Dynamodb_error.t) result
+val get_item : t -> key:item -> (item option, Dynamodb_error.t) result
 val delete_item :
-  net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> ?condition:condition -> key:item -> unit ->
+  t -> ?condition:condition -> key:item -> unit ->
   (unit, Dynamodb_error.t) result
 val update_item :
-  net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> ?condition:condition -> key:item ->
+  t -> ?condition:condition -> key:item ->
   updates:update_op list -> unit -> (unit, Dynamodb_error.t) result
 (** [Error Empty_updates] if [updates = []], checked before any request is built.
     A [condition] that doesn't hold comes back as [Error Conditional_check_failed] —
@@ -138,17 +138,34 @@ val update_item :
     attribute (e.g. a version-stamp CAS: `condition:(Equals ("version", N "5"))`
     alongside `updates:[ Increment ("version", "1") ]`). *)
 
-val query :
-  net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config ->
+val query_all :
+  t ->
   ?index_name:string ->
   ?expression_attribute_names:(string * string) list ->
   key_condition_expression:string ->
   expression_attribute_values:item ->
   unit ->
   (item list, Dynamodb_error.t) result
-(** Single page only — v1 does not read [LastEvaluatedKey]. A query whose real result
-    set exceeds DynamoDB's 1MB-per-page limit silently returns only the first page; see
-    "Out of Scope". *)
+
+type query_page = {
+  items : item list;
+  last_evaluated_key : item option;
+}
+
+type t
+
+val create : net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> t
+
+val query_page :
+  t ->
+  ?index_name:string ->
+  ?expression_attribute_names:(string * string) list ->
+  ?exclusive_start_key:item ->
+  ?limit:int ->
+  key_condition_expression:string ->
+  expression_attribute_values:item ->
+  unit ->
+  (query_page, Dynamodb_error.t) result
 ```
 
 ## `Dynamodb_table` — the typed indexing layer
@@ -167,11 +184,16 @@ end
 
 module Index (I : INDEX) : sig
   val get :
-    net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> Dynamodb_client.config ->
+    Dynamodb_client.t ->
     pk:I.pk -> sk:I.sk -> (Dynamodb_client.item option, Dynamodb_error.t) result
 
-  val query :
-    net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> Dynamodb_client.config ->
+  val query_page :
+    Dynamodb_client.t ->
+    pk:I.pk -> ?exclusive_start_key:Dynamodb_client.item -> ?limit:int -> unit ->
+    (Dynamodb_client.query_page, Dynamodb_error.t) result
+
+  val query_all :
+    Dynamodb_client.t ->
     pk:I.pk -> unit -> (Dynamodb_client.item list, Dynamodb_error.t) result
   (** Queries every item under [pk] on this index — the [sk] is deliberately not
       a parameter here; a query that needs a sort-key condition beyond "starts
@@ -191,7 +213,7 @@ module Entity (E : ENTITY) : sig
 
   val check : Dynamodb_client.item -> (Dynamodb_client.item, Dynamodb_error.t) result
   (** [Error (Wrong_entity got)] if the stamped name doesn't match [E.name] (or
-      is missing) — call after [Dynamodb_client.get_item]/[query] before treating
+      is missing) — call after [Dynamodb_client.get_item]/[query_page]/[query_all] before treating
       the item as this entity's shape. *)
 end
 ```
@@ -199,7 +221,7 @@ end
 The two functors compose independently — `Index` handles key-shape safety,
 `Entity` handles cross-entity-type discrimination on a shared table. A caller
 who wants both applies `Entity(E).stamp` before `Index(I).get`'s underlying
-put, and `Entity(E).check` on what `Index(I).get`/`query` return.
+put, and `Entity(E).check` on what `Index(I).get`/`query_page`/`query_all` return.
 
 **The one guarantee that has to be a compile-time check, not a runtime
 assertion:** passing `User_by_email`'s `` `Email `` key to
@@ -225,20 +247,17 @@ module Users = Dynamodb_table.Index (User_primary)
 module User_entity = Dynamodb_table.Entity (struct let name = "user" end)
 
 let config = { Dynamodb_client.table = "app"; region = "us-east-1"; credentials }
+let client = Dynamodb_client.create ~net ~clock config
 
-(* let _ = Users.get ~net ~clock config ~pk:(`Email "x") ~sk:(`User "y")
+(* let _ = Users.get client ~pk:(`Email "x") ~sk:(`User "y")
    -- does not compile: `Email is User_by_email's pk type, not User_primary's *)
 ```
 
 ## Out of Scope (v1)
 
-- **Pagination** (`LastEvaluatedKey`) — needs a typed cursor to avoid
-  ElectroDB's own pagination footgun (a cursor silently valid for the wrong
-  index/query); real design work, not done here. `query` in v1 always returns
-  exactly one page.
-- **`Index.query`'s sort-key conditions** (`begins_with`, `between`,
-  comparisons beyond "all items under this partition") — v1's `query` only
-  takes a partition key.
+- **`Index.query_page`/`query_all` sort-key conditions** (`begins_with`, `between`,
+  comparisons beyond "all items under this partition") — v1's index query helpers
+  only take a partition key.
 - **Batch operations** (`BatchGetItem`/`BatchWriteItem`) — different
   request/response shape (multiple items per call), not a small extension of
   the single-item operations.
