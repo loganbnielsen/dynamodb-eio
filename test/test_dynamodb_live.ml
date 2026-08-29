@@ -146,6 +146,92 @@ let test_conditional_put_create_iff_missing () =
         | Error e -> Alcotest.failf "expected Conditional_check_failed, got: %s" (Dynamodb_error.to_string e)
         | Ok () -> Alcotest.fail "second create-iff-missing put should not have succeeded")
 
+(* Remove/Add/Delete are the three update_op variants test_conditional_update_cas
+   doesn't touch (it only exercises Increment/Set) — Remove drops a scalar
+   attribute entirely, Add/Delete do set-union/set-difference on a string-set
+   attribute. All three compile through the same alias allocator as Set/Increment;
+   this is the only test that reaches them at all. *)
+let test_update_remove_add_delete () =
+  if not (live_enabled ()) then
+    Printf.printf "[skip] DYNAMODB_EIO_LIVE not set to 1 — skipping live DynamoDB smoke test\n%!"
+  else
+    Eio_main.run @@ fun env ->
+    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock (config ()) in
+    let item = live_key @ [ ("scratch", Dynamodb_value.S "drop-me"); ("tags", Dynamodb_value.Ss [ "a"; "b" ]) ] in
+    with_live_item client item (fun () ->
+        (match
+           Dynamodb_client.update_item client ~key:live_key
+             ~updates:
+               [ Remove "scratch";
+                 Add ("tags", Dynamodb_value.Ss [ "c" ]);
+               ]
+             ()
+         with
+        | Error e -> Alcotest.failf "remove+add update expected to succeed, got: %s" (Dynamodb_error.to_string e)
+        | Ok () -> ());
+        (match Dynamodb_client.get_item client ~key:live_key with
+        | Error e -> Alcotest.failf "GetItem failed: %s" (Dynamodb_error.to_string e)
+        | Ok None -> Alcotest.fail "expected the item to still exist"
+        | Ok (Some got) ->
+          Alcotest.(check bool) "scratch attribute removed" true (List.assoc_opt "scratch" got = None);
+          Alcotest.(check bool) "tags gained the added element" true
+            (match List.assoc_opt "tags" got with
+             | Some (Dynamodb_value.Ss tags) -> List.sort compare tags = [ "a"; "b"; "c" ]
+             | _ -> false));
+        match
+          Dynamodb_client.update_item client ~key:live_key ~updates:[ Delete ("tags", Dynamodb_value.Ss [ "a" ]) ] ()
+        with
+        | Error e -> Alcotest.failf "delete-from-set update expected to succeed, got: %s" (Dynamodb_error.to_string e)
+        | Ok () -> (
+          match Dynamodb_client.get_item client ~key:live_key with
+          | Error e -> Alcotest.failf "GetItem failed: %s" (Dynamodb_error.to_string e)
+          | Ok None -> Alcotest.fail "expected the item to still exist"
+          | Ok (Some got) ->
+            Alcotest.(check bool) "tags lost the deleted element" true
+              (match List.assoc_opt "tags" got with
+               | Some (Dynamodb_value.Ss tags) -> List.sort compare tags = [ "b"; "c" ]
+               | _ -> false)))
+
+(* And/Or/Not_equals are the boolean-composition side of `condition` that
+   test_conditional_update_cas/test_conditional_put_create_iff_missing don't
+   reach (both only use a bare Equals/Attribute_not_exists). Exercises the
+   recursive compile_condition branches and confirms operator precedence
+   round-trips through DynamoDB's own expression grammar as intended:
+   "(status <> shipped) AND (version = 1)". *)
+let test_condition_and_or_not_equals () =
+  if not (live_enabled ()) then
+    Printf.printf "[skip] DYNAMODB_EIO_LIVE not set to 1 — skipping live DynamoDB smoke test\n%!"
+  else
+    Eio_main.run @@ fun env ->
+    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock (config ()) in
+    let item = live_key @ [ ("version", Dynamodb_value.N "1"); ("status", Dynamodb_value.S "pending") ] in
+    let and_condition =
+      Dynamodb_client.And
+        (Not_equals ("status", Dynamodb_value.S "shipped"), Equals ("version", Dynamodb_value.N "1"))
+    in
+    with_live_item client item (fun () ->
+        (match
+           Dynamodb_client.update_item client ~condition:and_condition ~key:live_key
+             ~updates:[ Set ("status", Dynamodb_value.S "shipped") ]
+             ()
+         with
+        | Error e -> Alcotest.failf "AND/Not_equals condition expected to hold, got: %s" (Dynamodb_error.to_string e)
+        | Ok () -> ());
+        (* Now status = "shipped", so the same AND condition's Not_equals half is
+           false; an Or against an unrelated-but-true clause must still let it
+           through — Or's whole point is "either side holding is enough". *)
+        let or_condition =
+          Dynamodb_client.Or
+            (Not_equals ("status", Dynamodb_value.S "shipped"), Equals ("version", Dynamodb_value.N "1"))
+        in
+        match
+          Dynamodb_client.update_item client ~condition:or_condition ~key:live_key
+            ~updates:[ Increment ("version", "1") ]
+            ()
+        with
+        | Error e -> Alcotest.failf "OR condition expected to hold via its true half, got: %s" (Dynamodb_error.to_string e)
+        | Ok () -> ())
+
 let () =
   Alcotest.run "dynamodb_live"
     [ ( "smoke",
@@ -155,5 +241,7 @@ let () =
             test_conditional_update_cas;
           Alcotest.test_case "conditional put: create-iff-missing succeeds then fails once it exists" `Quick
             test_conditional_put_create_iff_missing;
+          Alcotest.test_case "update_item: Remove/Add/Delete" `Quick test_update_remove_add_delete;
+          Alcotest.test_case "condition: And/Or/Not_equals" `Quick test_condition_and_or_not_equals;
         ] );
     ]

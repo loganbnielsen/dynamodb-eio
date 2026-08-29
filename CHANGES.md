@@ -34,6 +34,12 @@
 - Public-API cleanup: request builders, JSON codecs, response interpreters,
   validators, expression compiler internals, and `Index.interpret_get_results`
   are private implementation details rather than installed interface symbols.
+- `test_dynamodb_live.ml` gained coverage for the `update_op`/`condition`
+  variants the CAS and create-iff-missing tests don't reach: `Remove`/`Add`/
+  `Delete` (set mutation, not just `Set`/`Increment`) and `And`/`Or`/
+  `Not_equals` (boolean composition, not just a bare `Equals`/
+  `Attribute_not_exists`). Not yet run against a real table — gated the same
+  way as the rest of `test_dynamodb_live.ml`.
 
 ## 0.1.0
 
