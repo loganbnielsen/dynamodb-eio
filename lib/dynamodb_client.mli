@@ -1,6 +1,6 @@
 (** Raw DynamoDB operations on top of [aws-eio]. See the project README's "Wire
     protocol" and "Out of Scope" sections for wire protocol details and what
-    v1 deliberately leaves out (pagination, batch operations, transactions). *)
+    v1 deliberately leaves out (batch operations and transactions). *)
 
 type config = {
   table : string;
@@ -39,26 +39,35 @@ type update_op =
 (** Compiles to an [UpdateExpression]. Every attribute name and value is
     aliased ([#n0], [:v0], ...) unconditionally — DynamoDB reserves ~600 words
     that can't appear literally in an expression, and always aliasing avoids
-    needing to know that list, matching {!query}'s existing
+    needing to know that list, matching [query_page]'s existing
     [expression_attribute_names] rationale. When {!update_item} is also given
     a [condition], both compile through one shared alias allocator, so a
     [ConditionExpression] and an [UpdateExpression] in the same request can
     never collide on the same [#n]/[:v] token. *)
 
+type query_page = {
+  items : item list;
+  last_evaluated_key : item option;
+}
+
+type t
+
+val create : net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> t
+
 val put_item :
-  net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> ?condition:condition -> item:item -> unit ->
+  t -> ?condition:condition -> item:item -> unit ->
   (unit, Dynamodb_error.t) result
 (** [?condition] compiles to a [ConditionExpression] on the same request — e.g.
     [Attribute_not_exists pk_attribute] for "create iff this key doesn't
     already exist". [Error Conditional_check_failed] if it doesn't hold. *)
 
-val get_item : net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> key:item -> (item option, Dynamodb_error.t) result
+val get_item : t -> key:item -> (item option, Dynamodb_error.t) result
 (** [None] when the key doesn't exist — GetItem returns HTTP 200 with no
-    ["Item"] field in that case, not a 404 (unlike {!S3_client.get_object}'s
+    ["Item"] field in that case, not a 404 (unlike S3's GetObject
     404-on-missing-key; DynamoDB's protocol just works differently). *)
 
 val delete_item :
-  net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> ?condition:condition -> key:item -> unit ->
+  t -> ?condition:condition -> key:item -> unit ->
   (unit, Dynamodb_error.t) result
 (** Without [?condition]: succeeds whether or not the key existed — DynamoDB's
     DeleteItem does not report "not found" as an error. With [?condition]:
@@ -67,15 +76,15 @@ val delete_item :
     a condition can't hold against an item that isn't there). *)
 
 val update_item :
-  net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> ?condition:condition -> key:item -> updates:update_op list ->
+  t -> ?condition:condition -> key:item -> updates:update_op list ->
   unit -> (unit, Dynamodb_error.t) result
 (** [Error Empty_updates] if [updates] is [[]], checked before any request is
     built — DynamoDB requires a non-empty [UpdateExpression]. Update clauses
     are grouped by keyword ([SET]/[REMOVE]/[ADD]/[DELETE]) into one expression,
     matching DynamoDB's grammar (each keyword may appear at most once). *)
 
-val query :
-  net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config ->
+val query_all :
+  t ->
   ?index_name:string ->
   ?expression_attribute_names:(string * string) list
       (** ["#name" -> "real_attribute_name"] aliases for
@@ -86,47 +95,17 @@ val query :
   expression_attribute_values:item ->
   unit ->
   (item list, Dynamodb_error.t) result
-(** Single page only — does not read [LastEvaluatedKey]. A query whose real
-    result set exceeds DynamoDB's 1MB-per-page limit silently returns only
-    the first page; see the project README's "Out of Scope" section. *)
+(** Drains pages until DynamoDB returns no [LastEvaluatedKey]. *)
 
-(** {2 Exposed for testing} *)
-
-val build_request_body : (string * Yojson.Safe.t) list -> string
-(** The exact JSON body an operation signs and sends, given its
-    action-specific fields (["TableName"], ["Item"]/["Key"]/etc.). *)
-
-val item_to_json : item -> Yojson.Safe.t
-val item_of_json : Yojson.Safe.t -> (item, string) result
-
-val validate_config : config -> (unit, Dynamodb_error.t) result
-(** The CR/LF fail-closed check every operation runs before building a
-    request — [config.region] becomes an unencoded Host header/connection
-    target with no percent-encoding pass. *)
-
-val reclassify_transport_result :
-  (int * (string * string) list * string, Aws_error.t) result ->
-  (int * (string * string) list * string, Dynamodb_error.t) result
-(** [Aws_http.signed_request] already converts every non-2xx status into
-    [Error (Http_error (status, body))] — this re-threads that back into the
-    [Ok] shape [interpret_*] expects, so their non-2xx classification
-    branches are actually reachable. *)
-
-val interpret_put : int * (string * string) list * string -> (unit, Dynamodb_error.t) result
-val interpret_get : int * (string * string) list * string -> (item option, Dynamodb_error.t) result
-val interpret_delete : int * (string * string) list * string -> (unit, Dynamodb_error.t) result
-val interpret_query : int * (string * string) list * string -> (item list, Dynamodb_error.t) result
-val interpret_update : int * (string * string) list * string -> (unit, Dynamodb_error.t) result
-
-type alias_state
-(** The shared [#n]/[:v] allocator threaded through {!compile_condition} and
-    {!compile_updates} within a single call, so the two compilers can never
-    hand out a colliding alias. *)
-
-val new_alias_state : unit -> alias_state
-val compile_condition : alias_state -> condition -> string
-val compile_updates : alias_state -> update_op list -> string
-val alias_fields : alias_state -> (string * Yojson.Safe.t) list
-(** [ExpressionAttributeNames]/[ExpressionAttributeValues] request-body
-    fields accumulated in [state] so far — [[]] for either that's still empty,
-    matching {!query}'s existing "omit when there's nothing to alias" shape. *)
+val query_page :
+  t ->
+  ?index_name:string ->
+  ?expression_attribute_names:(string * string) list ->
+  ?exclusive_start_key:item ->
+  ?limit:int ->
+  key_condition_expression:string ->
+  expression_attribute_values:item ->
+  unit ->
+  (query_page, Dynamodb_error.t) result
+(** Returns one DynamoDB Query page. [?limit] maps directly to DynamoDB's
+    [Limit]; use [last_evaluated_key] as the next [?exclusive_start_key]. *)

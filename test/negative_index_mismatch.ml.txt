@@ -42,6 +42,6 @@ end
 module Primary = Dynamodb_table.Index (User_primary)
 module By_email = Dynamodb_table.Index (User_by_email)
 
-let bad ~net ~clock config =
+let bad client =
   (* Primary.get expects User_primary.pk = [ `Org of string ], not [ `Email of string ] *)
-  Primary.get ~net ~clock config ~pk:(`Email "x") ~sk:(`User "y")
+  Primary.get client ~pk:(`Email "x") ~sk:(`User "y")

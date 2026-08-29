@@ -40,13 +40,13 @@ let config () =
 
 let live_key = [ ("pk", Dynamodb_value.S "sun-live-test#s3-eio-smoke"); ("sk", Dynamodb_value.S "item") ]
 
-let with_live_item ~net ~clock config item f =
-  match Dynamodb_client.put_item ~net ~clock config ~item () with
+let with_live_item client item f =
+  match Dynamodb_client.put_item client ~item () with
   | Error e -> Alcotest.failf "PutItem failed: %s" (Dynamodb_error.to_string e)
   | Ok () ->
     Fun.protect
       ~finally:(fun () ->
-        match Dynamodb_client.delete_item ~net ~clock config ~key:live_key () with
+        match Dynamodb_client.delete_item client ~key:live_key () with
         | Ok () | Error _ -> ())
       (fun () -> f ())
 
@@ -55,11 +55,10 @@ let test_put_get_delete_roundtrip () =
     Printf.printf "[skip] DYNAMODB_EIO_LIVE not set to 1 — skipping live DynamoDB smoke test\n%!"
   else
     Eio_main.run @@ fun env ->
-    let net = env#net and clock = env#clock in
-    let config = config () in
+    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock (config ()) in
     let item = live_key @ [ ("count", Dynamodb_value.N "42") ] in
-    with_live_item ~net ~clock config item (fun () ->
-        match Dynamodb_client.get_item ~net ~clock config ~key:live_key with
+    with_live_item client item (fun () ->
+        match Dynamodb_client.get_item client ~key:live_key with
         | Error e -> Alcotest.failf "GetItem failed: %s" (Dynamodb_error.to_string e)
         | Ok None -> Alcotest.fail "expected the item we just put"
         | Ok (Some got) ->
@@ -71,9 +70,9 @@ let test_missing_key_returns_none () =
     Printf.printf "[skip] DYNAMODB_EIO_LIVE not set to 1 — skipping live DynamoDB smoke test\n%!"
   else
     Eio_main.run @@ fun env ->
-    let config = config () in
+    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock (config ()) in
     let missing_key = [ ("pk", Dynamodb_value.S "sun-live-test#does-not-exist"); ("sk", Dynamodb_value.S "item") ] in
-    match Dynamodb_client.get_item ~net:env#net ~clock:env#clock config ~key:missing_key with
+    match Dynamodb_client.get_item client ~key:missing_key with
     | Ok None -> ()
     | Ok (Some _) -> Alcotest.fail "expected the known-missing key to return None"
     | Error e -> Alcotest.failf "GetItem failed: %s" (Dynamodb_error.to_string e)
@@ -88,19 +87,18 @@ let test_conditional_update_cas () =
     Printf.printf "[skip] DYNAMODB_EIO_LIVE not set to 1 — skipping live DynamoDB smoke test\n%!"
   else
     Eio_main.run @@ fun env ->
-    let net = env#net and clock = env#clock in
-    let config = config () in
+    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock (config ()) in
     let item = live_key @ [ ("version", Dynamodb_value.N "1"); ("status", Dynamodb_value.S "pending") ] in
-    with_live_item ~net ~clock config item (fun () ->
+    with_live_item client item (fun () ->
         (match
-           Dynamodb_client.update_item ~net ~clock config ~condition:(Equals ("version", Dynamodb_value.N "1"))
+           Dynamodb_client.update_item client ~condition:(Equals ("version", Dynamodb_value.N "1"))
              ~key:live_key
              ~updates:[ Increment ("version", "1"); Set ("status", Dynamodb_value.S "shipped") ]
              ()
          with
         | Error e -> Alcotest.failf "conditional update expected to succeed, got: %s" (Dynamodb_error.to_string e)
         | Ok () -> ());
-        (match Dynamodb_client.get_item ~net ~clock config ~key:live_key with
+        (match Dynamodb_client.get_item client ~key:live_key with
         | Error e -> Alcotest.failf "GetItem failed: %s" (Dynamodb_error.to_string e)
         | Ok None -> Alcotest.fail "expected the item to still exist"
         | Ok (Some got) ->
@@ -111,7 +109,7 @@ let test_conditional_update_cas () =
         (* Same condition again, now stale (version is 2, not 1) — must fail,
            not silently clobber a concurrent writer's update. *)
         match
-          Dynamodb_client.update_item ~net ~clock config ~condition:(Equals ("version", Dynamodb_value.N "1"))
+          Dynamodb_client.update_item client ~condition:(Equals ("version", Dynamodb_value.N "1"))
             ~key:live_key
             ~updates:[ Increment ("version", "1") ]
             ()
@@ -129,21 +127,20 @@ let test_conditional_put_create_iff_missing () =
     Printf.printf "[skip] DYNAMODB_EIO_LIVE not set to 1 — skipping live DynamoDB smoke test\n%!"
   else
     Eio_main.run @@ fun env ->
-    let net = env#net and clock = env#clock in
-    let config = config () in
+    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock (config ()) in
     let key = [ ("pk", Dynamodb_value.S "sun-live-test#dynamodb-eio-create-iff-missing"); ("sk", Dynamodb_value.S "item") ] in
     let item = key @ [ ("created_by", Dynamodb_value.S "first-writer") ] in
     Fun.protect
-      ~finally:(fun () -> ignore (Dynamodb_client.delete_item ~net ~clock config ~key ()))
+      ~finally:(fun () -> ignore (Dynamodb_client.delete_item client ~key ()))
       (fun () ->
-        (match Dynamodb_client.put_item ~net ~clock config ~condition:(Attribute_not_exists "pk") ~item () with
+        (match Dynamodb_client.put_item client ~condition:(Attribute_not_exists "pk") ~item () with
         | Error e -> Alcotest.failf "first create-iff-missing put expected to succeed, got: %s" (Dynamodb_error.to_string e)
         | Ok () -> ());
         (* Same condition again — must fail now that the item exists, not silently
            overwrite whichever writer actually created it first. *)
         let second_item = key @ [ ("created_by", Dynamodb_value.S "second-writer") ] in
         match
-          Dynamodb_client.put_item ~net ~clock config ~condition:(Attribute_not_exists "pk") ~item:second_item ()
+          Dynamodb_client.put_item client ~condition:(Attribute_not_exists "pk") ~item:second_item ()
         with
         | Error Conditional_check_failed -> ()
         | Error e -> Alcotest.failf "expected Conditional_check_failed, got: %s" (Dynamodb_error.to_string e)

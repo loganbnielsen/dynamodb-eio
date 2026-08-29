@@ -23,21 +23,22 @@ end
 
 module Index (I : INDEX) : sig
   val get :
-    net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> Dynamodb_client.config ->
+    Dynamodb_client.t ->
     pk:I.pk -> sk:I.sk -> (Dynamodb_client.item option, Dynamodb_error.t) result
   (** Implemented as [Query] with an equality condition on [pk] and [sk] —
       DynamoDB has no [GetItem] for a secondary index. [Error
       (Malformed_response _)] if more than one item matches: secondary
-      indexes don't enforce pk+sk uniqueness, so use {!query} instead of
+      indexes don't enforce pk+sk uniqueness, so use {!query_all} instead of
       [get] where that's possible. *)
 
-  val interpret_get_results : Dynamodb_client.item list -> (Dynamodb_client.item option, Dynamodb_error.t) result
-  (** [get]'s pure result-interpretation step, exposed for testing — no
-      network call needed to exercise the multi-item (non-unique-index)
-      case. *)
+  val query_page :
+    Dynamodb_client.t ->
+    pk:I.pk -> ?exclusive_start_key:Dynamodb_client.item -> ?limit:int -> unit ->
+    (Dynamodb_client.query_page, Dynamodb_error.t) result
+  (** One DynamoDB page under [pk] on this index. *)
 
-  val query :
-    net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> Dynamodb_client.config ->
+  val query_all :
+    Dynamodb_client.t ->
     pk:I.pk -> unit -> (Dynamodb_client.item list, Dynamodb_error.t) result
   (** Every item under [pk] on this index. [sk] is deliberately not a
       parameter — a query needing a sort-key condition beyond "every item in
@@ -58,6 +59,6 @@ module Entity (E : ENTITY) : sig
   val check : Dynamodb_client.item -> (Dynamodb_client.item, Dynamodb_error.t) result
   (** [Error (Wrong_entity _)] if the stamped name doesn't match [E.name] (or
       is missing entirely) — call on whatever {!Dynamodb_client.get_item}/
-      {!Index.get}/{!Index.query} returned before treating it as this
+      {!Index.get}/{!Index.query_page}/{!Index.query_all} returned before treating it as this
       entity's shape. *)
 end

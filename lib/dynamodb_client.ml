@@ -21,10 +21,40 @@ type update_op =
   | Add of string * Dynamodb_value.t
   | Delete of string * Dynamodb_value.t
 
+type query_page = {
+  items : item list;
+  last_evaluated_key : item option;
+}
+
+type t = {
+  net : [`Generic] Eio.Net.ty Eio.Std.r;
+  clock : float Eio.Time.clock_ty Eio.Std.r;
+  config : config;
+}
+
+let create ~net ~clock config =
+  { net = (net :> [`Generic] Eio.Net.ty Eio.Std.r);
+    clock = (clock :> float Eio.Time.clock_ty Eio.Std.r);
+    config;
+  }
+
 let ( let* ) = Result.bind
 
 let item_to_json (item : item) : Yojson.Safe.t =
   `Assoc (List.map (fun (k, v) -> (k, Dynamodb_value.to_json v)) item)
+
+let validate_item item =
+  let seen = Hashtbl.create (List.length item) in
+  match
+    List.find_opt
+      (fun (name, _) ->
+        let duplicate = Hashtbl.mem seen name in
+        Hashtbl.replace seen name ();
+        duplicate)
+      item
+  with
+  | None -> Ok ()
+  | Some (name, _) -> Error (Dynamodb_error.Invalid_request ("duplicate attribute: " ^ name))
 
 let item_of_json = function
   | `Assoc fields ->
@@ -158,21 +188,21 @@ let reclassify_transport_result :
 
 (* Credentials are resolved fresh on every call — no caching; see
    dynamo-eio.md's "Out of Scope". *)
-let call ~net ~clock config ~action ~body () =
-  let* () = validate_config config in
-  let* creds = resolve_credentials ~net ~clock config in
-  let host = Printf.sprintf "dynamodb.%s.amazonaws.com" config.region in
+let call t ~action ~body () =
+  let* () = validate_config t.config in
+  let* creds = resolve_credentials ~net:t.net ~clock:t.clock t.config in
+  let host = Printf.sprintf "dynamodb.%s.amazonaws.com" t.config.region in
   let extra_headers =
     [ ("Content-Type", "application/x-amz-json-1.0");
       ("X-Amz-Target", "DynamoDB_20120810." ^ action);
     ]
   in
   reclassify_transport_result
-    (Aws_http.signed_request ~net ~clock
+    (Aws_http.signed_request ~net:t.net ~clock:t.clock
        ~access_key_id:creds.access_key_id
        ~secret_access_key:creds.secret_access_key
        ?session_token:creds.session_token
-       ~region:config.region ~service:"dynamodb" ~normalize_path:true
+       ~region:t.config.region ~service:"dynamodb" ~normalize_path:true
        ~meth:`POST ~host ~path:"/" ~extra_headers ~body ())
 
 (* Pure and separate from call so it's unit-testable with synthetic
@@ -200,7 +230,7 @@ let interpret_delete (status, _headers, body) =
 let interpret_update (status, _headers, body) =
   if status >= 200 && status < 300 then Ok () else Error (Dynamodb_error.of_response ~status ~body)
 
-let interpret_query (status, _headers, body) =
+let interpret_query_page (status, _headers, body) =
   if status < 200 || status >= 300 then Error (Dynamodb_error.of_response ~status ~body)
   else
     match Yojson.Safe.from_string body with
@@ -209,14 +239,23 @@ let interpret_query (status, _headers, body) =
       match List.assoc_opt "Items" fields with
       | None -> Error (Dynamodb_error.Malformed_response "Query response has no \"Items\" field")
       | Some (`List items) -> (
-        List.fold_left
+        let* items =
+          List.fold_left
           (fun acc item_json ->
             let* acc = acc in
             match item_of_json item_json with Ok item -> Ok (item :: acc) | Error msg -> Error msg)
           (Ok []) items
-        |> function
-        | Ok items -> Ok (List.rev items)
-        | Error msg -> Error (Dynamodb_error.Malformed_response msg))
+          |> Result.map_error (fun msg -> Dynamodb_error.Malformed_response msg)
+        in
+        let* last_evaluated_key =
+          match List.assoc_opt "LastEvaluatedKey" fields with
+          | None -> Ok None
+          | Some json -> (
+            match item_of_json json with
+            | Ok key -> Ok (Some key)
+            | Error msg -> Error (Dynamodb_error.Malformed_response msg))
+        in
+        Ok { items = List.rev items; last_evaluated_key })
       | Some json ->
         Error (Dynamodb_error.Malformed_response ("\"Items\" is not a JSON array: " ^ Yojson.Safe.to_string json)))
     | json -> Error (Dynamodb_error.Malformed_response ("expected a JSON object, got: " ^ Yojson.Safe.to_string json))
@@ -227,35 +266,39 @@ let condition_fields state = function
     let expr = compile_condition state c in
     ("ConditionExpression", `String expr) :: alias_fields state
 
-let put_item ~net ~clock config ?condition ~item () =
+let put_item t ?condition ~item () =
+  let* () = validate_item item in
   let state = new_alias_state () in
   let body =
     build_request_body
-      ([ ("TableName", `String config.table); ("Item", item_to_json item) ] @ condition_fields state condition)
+      ([ ("TableName", `String t.config.table); ("Item", item_to_json item) ] @ condition_fields state condition)
   in
-  match call ~net ~clock config ~action:"PutItem" ~body () with
+  match call t ~action:"PutItem" ~body () with
   | Error _ as e -> e
   | Ok r -> interpret_put r
 
-let get_item ~net ~clock config ~key =
-  let body = build_request_body [ ("TableName", `String config.table); ("Key", item_to_json key) ] in
-  match call ~net ~clock config ~action:"GetItem" ~body () with
+let get_item t ~key =
+  let* () = validate_item key in
+  let body = build_request_body [ ("TableName", `String t.config.table); ("Key", item_to_json key) ] in
+  match call t ~action:"GetItem" ~body () with
   | Error _ as e -> e
   | Ok r -> interpret_get r
 
-let delete_item ~net ~clock config ?condition ~key () =
+let delete_item t ?condition ~key () =
+  let* () = validate_item key in
   let state = new_alias_state () in
   let body =
     build_request_body
-      ([ ("TableName", `String config.table); ("Key", item_to_json key) ] @ condition_fields state condition)
+      ([ ("TableName", `String t.config.table); ("Key", item_to_json key) ] @ condition_fields state condition)
   in
-  match call ~net ~clock config ~action:"DeleteItem" ~body () with
+  match call t ~action:"DeleteItem" ~body () with
   | Error _ as e -> e
   | Ok r -> interpret_delete r
 
-let update_item ~net ~clock config ?condition ~key ~updates () =
+let update_item t ?condition ~key ~updates () =
   if updates = [] then Error Dynamodb_error.Empty_updates
   else
+    let* () = validate_item key in
     let state = new_alias_state () in
     let update_expression = compile_updates state updates in
     let condition_expression =
@@ -263,24 +306,33 @@ let update_item ~net ~clock config ?condition ~key ~updates () =
     in
     let body =
       build_request_body
-        ([ ("TableName", `String config.table);
+        ([ ("TableName", `String t.config.table);
            ("Key", item_to_json key);
            ("UpdateExpression", `String update_expression);
          ]
         @ condition_expression @ alias_fields state)
     in
-    match call ~net ~clock config ~action:"UpdateItem" ~body () with
+    match call t ~action:"UpdateItem" ~body () with
     | Error _ as e -> e
     | Ok r -> interpret_update r
 
-let query ~net ~clock config ?index_name ?expression_attribute_names ~key_condition_expression
-    ~expression_attribute_values () =
+let query_page t ?index_name ?expression_attribute_names ?exclusive_start_key ?limit
+    ~key_condition_expression ~expression_attribute_values () =
+  let* () = validate_item expression_attribute_values in
+  let* () = match exclusive_start_key with None -> Ok () | Some key -> validate_item key in
+  let* () =
+    match limit with
+    | Some n when n <= 0 -> Error (Dynamodb_error.Invalid_request "query limit must be positive")
+    | _ -> Ok ()
+  in
   let fields =
-    [ ("TableName", `String config.table);
+    [ ("TableName", `String t.config.table);
       ("KeyConditionExpression", `String key_condition_expression);
       ("ExpressionAttributeValues", item_to_json expression_attribute_values);
     ]
     @ (match index_name with Some n -> [ ("IndexName", `String n) ] | None -> [])
+    @ (match exclusive_start_key with Some key -> [ ("ExclusiveStartKey", item_to_json key) ] | None -> [])
+    @ (match limit with Some n -> [ ("Limit", `Int n) ] | None -> [])
     @
     match expression_attribute_names with
     | Some names when names <> [] ->
@@ -288,6 +340,19 @@ let query ~net ~clock config ?index_name ?expression_attribute_names ~key_condit
     | _ -> []
   in
   let body = build_request_body fields in
-  match call ~net ~clock config ~action:"Query" ~body () with
+  match call t ~action:"Query" ~body () with
   | Error _ as e -> e
-  | Ok r -> interpret_query r
+  | Ok r -> interpret_query_page r
+
+let query_all t ?index_name ?expression_attribute_names ~key_condition_expression
+    ~expression_attribute_values () =
+  let rec loop acc exclusive_start_key =
+    match
+      query_page t ?index_name ?expression_attribute_names ?exclusive_start_key
+        ~key_condition_expression ~expression_attribute_values ()
+    with
+    | Error _ as e -> e
+    | Ok { items; last_evaluated_key = None } -> Ok (List.rev_append acc items)
+    | Ok { items; last_evaluated_key = Some key } -> loop (List.rev_append items acc) (Some key)
+  in
+  loop [] None

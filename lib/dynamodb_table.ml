@@ -12,7 +12,7 @@ end
 module Index (I : INDEX) = struct
   (* DynamoDB only guarantees pk+sk uniqueness on the primary key, not on
      secondary indexes, so more than one item can match here. Fail loud
-     rather than silently returning the first match — use query instead. *)
+     rather than silently returning the first match — use query_all instead. *)
   let interpret_get_results = function
     | [] -> Ok None
     | [ item ] -> Ok (Some item)
@@ -26,13 +26,13 @@ module Index (I : INDEX) = struct
                | None -> "this is the primary index, which should be impossible; investigate the table schema"
                | Some name ->
                  Printf.sprintf
-                   "%s is a secondary index, which DynamoDB does not enforce key uniqueness on; use query instead \
+                   "%s is a secondary index, which DynamoDB does not enforce key uniqueness on; use query_all instead \
                     of get if more than one item can share this key"
                    name)))
 
-  let get ~net ~clock config ~pk ~sk =
+  let get client ~pk ~sk =
     match
-      Dynamodb_client.query ~net ~clock config ?index_name:I.index_name
+      Dynamodb_client.query_all client ?index_name:I.index_name
         ~expression_attribute_names:[ ("#pk", I.pk_attribute); ("#sk", I.sk_attribute) ]
         ~key_condition_expression:"#pk = :pk AND #sk = :sk"
         ~expression_attribute_values:
@@ -42,8 +42,16 @@ module Index (I : INDEX) = struct
     | Error _ as e -> e
     | Ok items -> interpret_get_results items
 
-  let query ~net ~clock config ~pk () =
-    Dynamodb_client.query ~net ~clock config ?index_name:I.index_name
+  let query_page client ~pk ?exclusive_start_key ?limit () =
+    Dynamodb_client.query_page client ?index_name:I.index_name
+      ?exclusive_start_key ?limit
+      ~expression_attribute_names:[ ("#pk", I.pk_attribute) ]
+      ~key_condition_expression:"#pk = :pk"
+      ~expression_attribute_values:[ (":pk", Dynamodb_value.S (I.format_pk pk)) ]
+      ()
+
+  let query_all client ~pk () =
+    Dynamodb_client.query_all client ?index_name:I.index_name
       ~expression_attribute_names:[ ("#pk", I.pk_attribute) ]
       ~key_condition_expression:"#pk = :pk"
       ~expression_attribute_values:[ (":pk", Dynamodb_value.S (I.format_pk pk)) ]
@@ -57,7 +65,7 @@ end
 module Entity (E : ENTITY) = struct
   let discriminator_attribute = "__dynamodb_eio_entity__"
 
-  let stamp item = (discriminator_attribute, Dynamodb_value.S E.name) :: item
+  let stamp item = (discriminator_attribute, Dynamodb_value.S E.name) :: List.remove_assoc discriminator_attribute item
 
   let check item =
     match List.assoc_opt discriminator_attribute item with

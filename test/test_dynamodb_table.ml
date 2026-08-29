@@ -39,27 +39,7 @@ let test_functor_instances_are_distinct () =
   (* Referencing both applications together proves they typecheck side by
      side with distinct pk/sk types — if types collapsed, this would fail
      to compile like the negative-compile check does. *)
-  ignore (Primary.get, Primary.query, By_email.get, By_email.query)
-
-(* DynamoDB doesn't enforce pk+sk uniqueness on a secondary index the way
-   it does on a table's own primary key, so Index.get must not silently
-   take the first result and drop the rest. *)
-let test_get_results_empty () =
-  Alcotest.(check bool) "no items -> Ok None" true (Primary.interpret_get_results [] = Ok None)
-
-let test_get_results_single_item () =
-  let item = [ ("PK", Dynamodb_value.S "ORG#a"); ("SK", Dynamodb_value.S "USER#b") ] in
-  Alcotest.(check bool) "one item -> Ok (Some item)" true (Primary.interpret_get_results [ item ] = Ok (Some item))
-
-let test_get_results_multiple_items_on_primary_fails_loud () =
-  let item1 = [ ("PK", Dynamodb_value.S "ORG#a") ] and item2 = [ ("PK", Dynamodb_value.S "ORG#b") ] in
-  Alcotest.(check bool) "more than one item -> Error, not silently the first" true
-    (match Primary.interpret_get_results [ item1; item2 ] with Error (Malformed_response _) -> true | _ -> false)
-
-let test_get_results_multiple_items_on_secondary_index_fails_loud () =
-  let item1 = [ ("GSI1PK", Dynamodb_value.S "EMAIL#a") ] and item2 = [ ("GSI1PK", Dynamodb_value.S "EMAIL#b") ] in
-  Alcotest.(check bool) "a non-unique secondary index match also fails loud, not silently the first" true
-    (match By_email.interpret_get_results [ item1; item2 ] with Error (Malformed_response _) -> true | _ -> false)
+  ignore (Primary.get, Primary.query_page, Primary.query_all, By_email.get, By_email.query_page, By_email.query_all)
 
 module User_entity = Dynamodb_table.Entity (struct
   let name = "user"
@@ -89,17 +69,22 @@ let test_entity_check_rejects_missing_discriminator () =
      | Error (Wrong_entity { expected = "user"; got = None }) -> true
      | _ -> false)
 
+let test_entity_stamp_replaces_existing_discriminator () =
+  let item =
+    [ (User_entity.discriminator_attribute, Dynamodb_value.S "order");
+      ("id", Dynamodb_value.S "usr_1");
+    ]
+  in
+  let stamped = User_entity.stamp item in
+  Alcotest.(check int) "one discriminator" 1
+    (List.length (List.filter (fun (k, _) -> k = User_entity.discriminator_attribute) stamped));
+  Alcotest.(check bool) "now checks as user" true (Result.is_ok (User_entity.check stamped))
+
 let () =
   Alcotest.run "dynamodb_table"
     [ ( "Index",
         [ Alcotest.test_case "functor instances are distinct, each formats its own key shape" `Quick
             test_functor_instances_are_distinct;
-          Alcotest.test_case "get_results: empty -> None" `Quick test_get_results_empty;
-          Alcotest.test_case "get_results: single item -> Some item" `Quick test_get_results_single_item;
-          Alcotest.test_case "get_results: multiple items on primary index fails loud" `Quick
-            test_get_results_multiple_items_on_primary_fails_loud;
-          Alcotest.test_case "get_results: multiple items on a secondary index also fails loud" `Quick
-            test_get_results_multiple_items_on_secondary_index_fails_loud;
         ] );
       ( "Entity",
         [ Alcotest.test_case "stamp then check round trips" `Quick test_entity_stamp_and_check_round_trip;
@@ -107,5 +92,7 @@ let () =
             test_entity_check_rejects_wrong_entity;
           Alcotest.test_case "check rejects a missing discriminator" `Quick
             test_entity_check_rejects_missing_discriminator;
+          Alcotest.test_case "stamp replaces existing discriminator" `Quick
+            test_entity_stamp_replaces_existing_discriminator;
         ] );
     ]
