@@ -70,6 +70,10 @@ module Entity (E : ENTITY) = struct
   let check item =
     match List.assoc_opt discriminator_attribute item with
     | Some (Dynamodb_value.S got) when got = E.name -> Ok item
-    | Some (Dynamodb_value.S got) -> Error (Dynamodb_error.Wrong_entity { expected = E.name; got = Some got })
-    | Some _ | None -> Error (Dynamodb_error.Wrong_entity { expected = E.name; got = None })
+    | Some (Dynamodb_value.S got) ->
+      Error (Dynamodb_error.Wrong_entity { expected = E.name; got = Dynamodb_error.Wrong_value got })
+    | Some other ->
+      Error (Dynamodb_error.Wrong_entity { expected = E.name; got = Dynamodb_error.Wrong_type other })
+    | None ->
+      Error (Dynamodb_error.Wrong_entity { expected = E.name; got = Dynamodb_error.Missing })
 end

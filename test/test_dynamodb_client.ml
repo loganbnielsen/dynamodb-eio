@@ -10,7 +10,7 @@ let config ?(region = "us-east-1") () : Dynamodb_client.config =
   }
 
 let client env ?region () =
-  Dynamodb_client.create ~net:env#net ~clock:env#clock (config ?region ())
+  Dynamodb_client.create ~net:env#net ~clock:env#clock ~fs:env#fs (config ?region ())
 
 let test_get_item_rejects_crlf_region () =
   Eio_main.run @@ fun env ->

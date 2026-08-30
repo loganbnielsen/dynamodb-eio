@@ -29,12 +29,14 @@ type query_page = {
 type t = {
   net : [`Generic] Eio.Net.ty Eio.Std.r;
   clock : float Eio.Time.clock_ty Eio.Std.r;
+  fs : Eio.Fs.dir_ty Eio.Path.t;
   config : config;
 }
 
-let create ~net ~clock config =
+let create ~net ~clock ~fs config =
   { net = (net :> [`Generic] Eio.Net.ty Eio.Std.r);
     clock = (clock :> float Eio.Time.clock_ty Eio.Std.r);
+    fs;
     config;
   }
 
@@ -161,8 +163,8 @@ let compile_updates state ops =
        match List.rev items with [] -> None | items -> Some (keyword ^ " " ^ String.concat ", " items))
   |> String.concat " "
 
-let resolve_credentials ~net ~clock config =
-  match Aws_credentials.resolve ~net ~clock config.credentials with
+let resolve_credentials ~net ~clock ~fs config =
+  match Aws_credentials.resolve ~net ~clock ~fs config.credentials with
   | Error e -> Error (Dynamodb_error.Aws e)
   | Ok creds -> Ok creds
 
@@ -190,7 +192,7 @@ let reclassify_transport_result :
    dynamo-eio.md's "Out of Scope". *)
 let call t ~action ~body () =
   let* () = validate_config t.config in
-  let* creds = resolve_credentials ~net:t.net ~clock:t.clock t.config in
+  let* creds = resolve_credentials ~net:t.net ~clock:t.clock ~fs:t.fs t.config in
   let host = Printf.sprintf "dynamodb.%s.amazonaws.com" t.config.region in
   let extra_headers =
     [ ("Content-Type", "application/x-amz-json-1.0");
