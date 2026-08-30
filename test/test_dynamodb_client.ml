@@ -37,8 +37,9 @@ let test_query_page_rejects_non_positive_limit () =
   Alcotest.(check bool) "limit rejected before a request" true
     (match
        Dynamodb_client.query_page client
-         ~limit:0 ~key_condition_expression:"#pk = :pk"
-         ~expression_attribute_values:[ (":pk", Dynamodb_value.S "ORG#1") ] ()
+         ~limit:0
+         ~key_condition:(Dynamodb_client.Pk_equals { pk_attribute = "pk"; pk = Dynamodb_value.S "ORG#1" })
+         ()
      with
      | Error (Invalid_request _) -> true
      | _ -> false)

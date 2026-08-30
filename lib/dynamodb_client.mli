@@ -45,6 +45,24 @@ type update_op =
     [ConditionExpression] and an [UpdateExpression] in the same request can
     never collide on the same [#n]/[:v] token. *)
 
+type key_condition =
+  | Pk_equals of { pk_attribute : string; pk : Dynamodb_value.t }
+  | Pk_and_sk_equals of {
+      pk_attribute : string; pk : Dynamodb_value.t;
+      sk_attribute : string; sk : Dynamodb_value.t;
+    }
+(** Compiles to a [KeyConditionExpression], through the same alias allocator
+    as {!condition}/{!update_op} — the two shapes {!val-query_page}/{!query_all}
+    actually need: partition-key-only, and partition+sort-key equality. Like
+    {!condition}, deliberately not the full range of sort-key comparisons
+    DynamoDB's Query API supports ([<]/[<=]/[>]/[>=]/[between]/
+    [begins_with]) — add those if a caller actually needs them. Before this
+    type existed, callers built [KeyConditionExpression] as a raw string
+    ["#pk = :pk"]) alongside separately-supplied attribute-name/value
+    aliases, with nothing but a hand-followed naming convention tying the
+    two together; this makes that class of mismatch impossible to
+    construct. *)
+
 type query_page = {
   items : item list;
   last_evaluated_key : item option;
@@ -89,13 +107,7 @@ val update_item :
 val query_all :
   t ->
   ?index_name:string ->
-  ?expression_attribute_names:(string * string) list
-      (** ["#name" -> "real_attribute_name"] aliases for
-          [key_condition_expression] — DynamoDB reserves ~600 words that
-          can't appear literally in an expression; aliasing avoids the
-          caller needing to know that list. *)
-  -> key_condition_expression:string ->
-  expression_attribute_values:item ->
+  key_condition:key_condition ->
   unit ->
   (item list, Dynamodb_error.t) result
 (** Drains pages until DynamoDB returns no [LastEvaluatedKey]. *)
@@ -103,11 +115,9 @@ val query_all :
 val query_page :
   t ->
   ?index_name:string ->
-  ?expression_attribute_names:(string * string) list ->
   ?exclusive_start_key:item ->
   ?limit:int ->
-  key_condition_expression:string ->
-  expression_attribute_values:item ->
+  key_condition:key_condition ->
   unit ->
   (query_page, Dynamodb_error.t) result
 (** Returns one DynamoDB Query page. [?limit] maps directly to DynamoDB's

@@ -14,6 +14,13 @@ type condition =
   | And of condition * condition
   | Or of condition * condition
 
+type key_condition =
+  | Pk_equals of { pk_attribute : string; pk : Dynamodb_value.t }
+  | Pk_and_sk_equals of {
+      pk_attribute : string; pk : Dynamodb_value.t;
+      sk_attribute : string; sk : Dynamodb_value.t;
+    }
+
 type update_op =
   | Set of string * Dynamodb_value.t
   | Increment of string * string
@@ -131,6 +138,18 @@ let rec compile_condition state = function
     let ea = compile_condition state a in
     let eb = compile_condition state b in
     Printf.sprintf "(%s) OR (%s)" ea eb
+
+let compile_key_condition state = function
+  | Pk_equals { pk_attribute; pk } ->
+    let n = alias_name state pk_attribute in
+    let v = alias_value state pk in
+    Printf.sprintf "%s = %s" n v
+  | Pk_and_sk_equals { pk_attribute; pk; sk_attribute; sk } ->
+    let pk_n = alias_name state pk_attribute in
+    let pk_v = alias_value state pk in
+    let sk_n = alias_name state sk_attribute in
+    let sk_v = alias_value state sk in
+    Printf.sprintf "%s = %s AND %s = %s" pk_n pk_v sk_n sk_v
 
 (* Grouped by keyword, per DynamoDB's UpdateExpression grammar: each of
    SET/REMOVE/ADD/DELETE may appear at most once in the whole expression, so
@@ -320,41 +339,32 @@ let update_item t ?condition ~key ~updates () =
     | Error _ as e -> e
     | Ok r -> interpret_update r
 
-let query_page t ?index_name ?expression_attribute_names ?exclusive_start_key ?limit
-    ~key_condition_expression ~expression_attribute_values () =
-  let* () = validate_item expression_attribute_values in
+let query_page t ?index_name ?exclusive_start_key ?limit ~key_condition () =
   let* () = match exclusive_start_key with None -> Ok () | Some key -> validate_item key in
   let* () =
     match limit with
     | Some n when n <= 0 -> Error (Dynamodb_error.Invalid_request "query limit must be positive")
     | _ -> Ok ()
   in
+  let state = new_alias_state () in
+  let key_condition_expression = compile_key_condition state key_condition in
   let fields =
     [ ("TableName", `String t.config.table);
       ("KeyConditionExpression", `String key_condition_expression);
-      ("ExpressionAttributeValues", item_to_json expression_attribute_values);
     ]
     @ (match index_name with Some n -> [ ("IndexName", `String n) ] | None -> [])
     @ (match exclusive_start_key with Some key -> [ ("ExclusiveStartKey", item_to_json key) ] | None -> [])
     @ (match limit with Some n -> [ ("Limit", `Int n) ] | None -> [])
-    @
-    match expression_attribute_names with
-    | Some names when names <> [] ->
-      [ ("ExpressionAttributeNames", `Assoc (List.map (fun (k, v) -> (k, `String v)) names)) ]
-    | _ -> []
+    @ alias_fields state
   in
   let body = build_request_body fields in
   match call t ~action:"Query" ~body () with
   | Error _ as e -> e
   | Ok r -> interpret_query_page r
 
-let query_all t ?index_name ?expression_attribute_names ~key_condition_expression
-    ~expression_attribute_values () =
+let query_all t ?index_name ~key_condition () =
   let rec loop acc exclusive_start_key =
-    match
-      query_page t ?index_name ?expression_attribute_names ?exclusive_start_key
-        ~key_condition_expression ~expression_attribute_values ()
-    with
+    match query_page t ?index_name ?exclusive_start_key ~key_condition () with
     | Error _ as e -> e
     | Ok { items; last_evaluated_key = None } -> Ok (List.rev_append acc items)
     | Ok { items; last_evaluated_key = Some key } -> loop (List.rev_append items acc) (Some key)
