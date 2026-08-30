@@ -52,7 +52,10 @@ type query_page = {
 
 type t
 
-val create : net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> t
+val create : net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> fs:Eio.Fs.dir_ty Eio.Path.t -> config -> t
+(** [fs] is used only when [config.credentials] resolves via [Web_identity]
+    (a Kubernetes-projected service-account token file) — pass
+    [Eio.Stdenv.fs env]. *)
 
 val put_item :
   t -> ?condition:condition -> item:item -> unit ->

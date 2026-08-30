@@ -2,6 +2,16 @@
     the same way [kafka-eio-service]'s [Kafka_error.t] extends the raw
     librdkafka codes. *)
 
+type discriminator_shape =
+  | Missing  (** The discriminator attribute wasn't present on the item at all. *)
+  | Wrong_type of Dynamodb_value.t
+      (** The attribute was present but wasn't a string — a different failure
+          than [Missing]: this is data corruption or a schema mismatch, not a
+          genuinely absent field. *)
+  | Wrong_value of string
+      (** The attribute was a string, but not the expected entity name —
+          carries the entity name that was actually stamped. *)
+
 type t =
   | Aws of Aws_error.t
       (** Transport, signature, or credential-resolution failure from
@@ -17,10 +27,9 @@ type t =
           operation expected (e.g. [GetItem] without an [Item] or
           [ConsumedCapacity]-only response) — distinct from a transport or
           service-reported error. *)
-  | Wrong_entity of { expected : string; got : string option }
+  | Wrong_entity of { expected : string; got : discriminator_shape }
       (** {!Dynamodb_table.Entity}'s discriminator check failed: the item's
-          stamped entity name didn't match [expected] ([got = None] means the
-          discriminator attribute was missing or not a string entirely). *)
+          stamped entity name didn't match [expected]. *)
   | Invalid_config of string
       (** [config.region] failed a fail-closed CR/LF check before being used
           to build the Host header/connection target. *)

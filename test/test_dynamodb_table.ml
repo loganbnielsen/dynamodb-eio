@@ -60,13 +60,28 @@ let test_entity_check_rejects_wrong_entity () =
   let stamped_as_order = Order_entity.stamp [ ("id", Dynamodb_value.S "ord_1") ] in
   Alcotest.(check bool) "checking a User_entity against an Order-stamped item fails" true
     (match User_entity.check stamped_as_order with
-     | Error (Wrong_entity { expected = "user"; got = Some "order" }) -> true
+     | Error (Wrong_entity { expected = "user"; got = Wrong_value "order" }) -> true
      | _ -> false)
 
 let test_entity_check_rejects_missing_discriminator () =
   Alcotest.(check bool) "an item with no discriminator attribute at all fails" true
     (match User_entity.check [ ("id", Dynamodb_value.S "usr_1") ] with
-     | Error (Wrong_entity { expected = "user"; got = None }) -> true
+     | Error (Wrong_entity { expected = "user"; got = Missing }) -> true
+     | _ -> false)
+
+(* Regression test: a present-but-wrong-type discriminator used to be
+   reported identically to a missing one (both Wrong_entity { got = None }),
+   losing the distinction between "field absent" and "data corruption /
+   schema mismatch." *)
+let test_entity_check_distinguishes_wrong_type_from_missing () =
+  let item =
+    [ (User_entity.discriminator_attribute, Dynamodb_value.N "1");
+      ("id", Dynamodb_value.S "usr_1");
+    ]
+  in
+  Alcotest.(check bool) "a non-string discriminator reports Wrong_type, not Missing" true
+    (match User_entity.check item with
+     | Error (Wrong_entity { expected = "user"; got = Wrong_type (Dynamodb_value.N "1") }) -> true
      | _ -> false)
 
 let test_entity_stamp_replaces_existing_discriminator () =
@@ -92,6 +107,8 @@ let () =
             test_entity_check_rejects_wrong_entity;
           Alcotest.test_case "check rejects a missing discriminator" `Quick
             test_entity_check_rejects_missing_discriminator;
+          Alcotest.test_case "check distinguishes wrong-type from missing" `Quick
+            test_entity_check_distinguishes_wrong_type_from_missing;
           Alcotest.test_case "stamp replaces existing discriminator" `Quick
             test_entity_stamp_replaces_existing_discriminator;
         ] );

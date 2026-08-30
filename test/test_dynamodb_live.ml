@@ -55,7 +55,7 @@ let test_put_get_delete_roundtrip () =
     Printf.printf "[skip] DYNAMODB_EIO_LIVE not set to 1 — skipping live DynamoDB smoke test\n%!"
   else
     Eio_main.run @@ fun env ->
-    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock (config ()) in
+    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock ~fs:env#fs (config ()) in
     let item = live_key @ [ ("count", Dynamodb_value.N "42") ] in
     with_live_item client item (fun () ->
         match Dynamodb_client.get_item client ~key:live_key with
@@ -70,7 +70,7 @@ let test_missing_key_returns_none () =
     Printf.printf "[skip] DYNAMODB_EIO_LIVE not set to 1 — skipping live DynamoDB smoke test\n%!"
   else
     Eio_main.run @@ fun env ->
-    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock (config ()) in
+    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock ~fs:env#fs (config ()) in
     let missing_key = [ ("pk", Dynamodb_value.S "sun-live-test#does-not-exist"); ("sk", Dynamodb_value.S "item") ] in
     match Dynamodb_client.get_item client ~key:missing_key with
     | Ok None -> ()
@@ -87,7 +87,7 @@ let test_conditional_update_cas () =
     Printf.printf "[skip] DYNAMODB_EIO_LIVE not set to 1 — skipping live DynamoDB smoke test\n%!"
   else
     Eio_main.run @@ fun env ->
-    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock (config ()) in
+    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock ~fs:env#fs (config ()) in
     let item = live_key @ [ ("version", Dynamodb_value.N "1"); ("status", Dynamodb_value.S "pending") ] in
     with_live_item client item (fun () ->
         (match
@@ -127,7 +127,7 @@ let test_conditional_put_create_iff_missing () =
     Printf.printf "[skip] DYNAMODB_EIO_LIVE not set to 1 — skipping live DynamoDB smoke test\n%!"
   else
     Eio_main.run @@ fun env ->
-    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock (config ()) in
+    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock ~fs:env#fs (config ()) in
     let key = [ ("pk", Dynamodb_value.S "sun-live-test#dynamodb-eio-create-iff-missing"); ("sk", Dynamodb_value.S "item") ] in
     let item = key @ [ ("created_by", Dynamodb_value.S "first-writer") ] in
     Fun.protect
@@ -156,7 +156,7 @@ let test_update_remove_add_delete () =
     Printf.printf "[skip] DYNAMODB_EIO_LIVE not set to 1 — skipping live DynamoDB smoke test\n%!"
   else
     Eio_main.run @@ fun env ->
-    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock (config ()) in
+    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock ~fs:env#fs (config ()) in
     let item = live_key @ [ ("scratch", Dynamodb_value.S "drop-me"); ("tags", Dynamodb_value.Ss [ "a"; "b" ]) ] in
     with_live_item client item (fun () ->
         (match
@@ -203,7 +203,7 @@ let test_condition_and_or_not_equals () =
     Printf.printf "[skip] DYNAMODB_EIO_LIVE not set to 1 — skipping live DynamoDB smoke test\n%!"
   else
     Eio_main.run @@ fun env ->
-    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock (config ()) in
+    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock ~fs:env#fs (config ()) in
     let item = live_key @ [ ("version", Dynamodb_value.N "1"); ("status", Dynamodb_value.S "pending") ] in
     let and_condition =
       Dynamodb_client.And

@@ -1,3 +1,8 @@
+type discriminator_shape =
+  | Missing
+  | Wrong_type of Dynamodb_value.t
+  | Wrong_value of string
+
 type t =
   | Aws of Aws_error.t
   | Resource_not_found
@@ -5,10 +10,16 @@ type t =
   | Service_error of { exn_type : string; message : string }
   | Unparseable_error_response of { status : int; body : string }
   | Malformed_response of string
-  | Wrong_entity of { expected : string; got : string option }
+  | Wrong_entity of { expected : string; got : discriminator_shape }
   | Invalid_config of string
   | Invalid_request of string
   | Empty_updates
+
+let type_tag = function
+  | Dynamodb_value.S _ -> "S" | Dynamodb_value.N _ -> "N" | Dynamodb_value.B _ -> "B"
+  | Dynamodb_value.Bool _ -> "BOOL" | Dynamodb_value.Null -> "NULL"
+  | Dynamodb_value.Ss _ -> "SS" | Dynamodb_value.Ns _ -> "NS" | Dynamodb_value.Bs _ -> "BS"
+  | Dynamodb_value.L _ -> "L" | Dynamodb_value.M _ -> "M"
 
 (* "__type" is namespaced, e.g. "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException"
    — the part after '#' is the actual exception name. *)
@@ -47,8 +58,12 @@ let to_string = function
     Printf.sprintf "DynamoDB error %d, unparseable response: %s" status body
   | Malformed_response msg -> "malformed DynamoDB response: " ^ msg
   | Wrong_entity { expected; got } ->
-    Printf.sprintf "wrong entity: expected %S, got %s" expected
-      (match got with Some g -> Printf.sprintf "%S" g | None -> "no discriminator attribute")
+    let got_str = match got with
+      | Missing -> "no discriminator attribute"
+      | Wrong_type v -> Printf.sprintf "discriminator attribute has unexpected type %s" (type_tag v)
+      | Wrong_value g -> Printf.sprintf "%S" g
+    in
+    Printf.sprintf "wrong entity: expected %S, got %s" expected got_str
   | Invalid_config msg -> "invalid dynamo-eio config: " ^ msg
   | Invalid_request msg -> "invalid dynamo-eio request: " ^ msg
   | Empty_updates -> "update_item requires at least one update_op"
