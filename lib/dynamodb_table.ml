@@ -33,28 +33,27 @@ module Index (I : INDEX) = struct
   let get client ~pk ~sk =
     match
       Dynamodb_client.query_all client ?index_name:I.index_name
-        ~expression_attribute_names:[ ("#pk", I.pk_attribute); ("#sk", I.sk_attribute) ]
-        ~key_condition_expression:"#pk = :pk AND #sk = :sk"
-        ~expression_attribute_values:
-          [ (":pk", Dynamodb_value.S (I.format_pk pk)); (":sk", Dynamodb_value.S (I.format_sk sk)) ]
+        ~key_condition:(Dynamodb_client.Pk_and_sk_equals {
+          pk_attribute = I.pk_attribute; pk = Dynamodb_value.S (I.format_pk pk);
+          sk_attribute = I.sk_attribute; sk = Dynamodb_value.S (I.format_sk sk);
+        })
         ()
     with
     | Error _ as e -> e
     | Ok items -> interpret_get_results items
 
+  let key_condition pk =
+    Dynamodb_client.Pk_equals { pk_attribute = I.pk_attribute; pk = Dynamodb_value.S (I.format_pk pk) }
+
   let query_page client ~pk ?exclusive_start_key ?limit () =
     Dynamodb_client.query_page client ?index_name:I.index_name
       ?exclusive_start_key ?limit
-      ~expression_attribute_names:[ ("#pk", I.pk_attribute) ]
-      ~key_condition_expression:"#pk = :pk"
-      ~expression_attribute_values:[ (":pk", Dynamodb_value.S (I.format_pk pk)) ]
+      ~key_condition:(key_condition pk)
       ()
 
   let query_all client ~pk () =
     Dynamodb_client.query_all client ?index_name:I.index_name
-      ~expression_attribute_names:[ ("#pk", I.pk_attribute) ]
-      ~key_condition_expression:"#pk = :pk"
-      ~expression_attribute_values:[ (":pk", Dynamodb_value.S (I.format_pk pk)) ]
+      ~key_condition:(key_condition pk)
       ()
 end
 

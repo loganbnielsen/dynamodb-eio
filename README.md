@@ -138,12 +138,20 @@ val update_item :
     attribute (e.g. a version-stamp CAS: `condition:(Equals ("version", N "5"))`
     alongside `updates:[ Increment ("version", "1") ]`). *)
 
+type key_condition =
+  | Pk_equals of { pk_attribute : string; pk : Dynamodb_value.t }
+  | Pk_and_sk_equals of {
+      pk_attribute : string; pk : Dynamodb_value.t;
+      sk_attribute : string; sk : Dynamodb_value.t;
+    }
+(** Compiles to a [KeyConditionExpression] through the same alias allocator
+    as [condition]/[update_op] — no more hand-matching a raw expression
+    string's `#pk`/`:pk` placeholders to separately-supplied alias lists. *)
+
 val query_all :
   t ->
   ?index_name:string ->
-  ?expression_attribute_names:(string * string) list ->
-  key_condition_expression:string ->
-  expression_attribute_values:item ->
+  key_condition:key_condition ->
   unit ->
   (item list, Dynamodb_error.t) result
 
@@ -154,16 +162,14 @@ type query_page = {
 
 type t
 
-val create : net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> config -> t
+val create : net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> fs:Eio.Fs.dir_ty Eio.Path.t -> config -> t
 
 val query_page :
   t ->
   ?index_name:string ->
-  ?expression_attribute_names:(string * string) list ->
   ?exclusive_start_key:item ->
   ?limit:int ->
-  key_condition_expression:string ->
-  expression_attribute_values:item ->
+  key_condition:key_condition ->
   unit ->
   (query_page, Dynamodb_error.t) result
 ```
@@ -247,7 +253,7 @@ module Users = Dynamodb_table.Index (User_primary)
 module User_entity = Dynamodb_table.Entity (struct let name = "user" end)
 
 let config = { Dynamodb_client.table = "app"; region = "us-east-1"; credentials }
-let client = Dynamodb_client.create ~net ~clock config
+let client = Dynamodb_client.create ~net ~clock ~fs config
 
 (* let _ = Users.get client ~pk:(`Email "x") ~sk:(`User "y")
    -- does not compile: `Email is User_by_email's pk type, not User_primary's *)

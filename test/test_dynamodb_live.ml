@@ -232,6 +232,49 @@ let test_condition_and_or_not_equals () =
         | Error e -> Alcotest.failf "OR condition expected to hold via its true half, got: %s" (Dynamodb_error.to_string e)
         | Ok () -> ())
 
+(* No live coverage of query_page/query_all existed before key_condition
+   replaced the raw key_condition_expression/expression_attribute_* triple
+   (a caller previously matched a `#pk`/`:pk` naming convention by hand,
+   the class of mismatch key_condition now makes impossible to construct).
+   Confirms compile_key_condition's output is not just well-typed but
+   actually valid DynamoDB KeyConditionExpression syntax that returns the
+   right item, for both shapes: pk-only and pk+sk. *)
+let test_query_by_key_condition () =
+  if not (live_enabled ()) then
+    Printf.printf "[skip] DYNAMODB_EIO_LIVE not set to 1 — skipping live DynamoDB smoke test\n%!"
+  else
+    Eio_main.run @@ fun env ->
+    let client = Dynamodb_client.create ~net:env#net ~clock:env#clock ~fs:env#fs (config ()) in
+    let item = live_key @ [ ("note", Dynamodb_value.S "query-test") ] in
+    with_live_item client item (fun () ->
+        let pk =
+          match List.assoc_opt "pk" live_key with
+          | Some v -> v
+          | None -> Alcotest.fail "live_key missing pk"
+        in
+        let sk =
+          match List.assoc_opt "sk" live_key with
+          | Some v -> v
+          | None -> Alcotest.fail "live_key missing sk"
+        in
+        (match
+           Dynamodb_client.query_all client
+             ~key_condition:(Dynamodb_client.Pk_equals { pk_attribute = "pk"; pk }) ()
+         with
+         | Error e -> Alcotest.failf "Pk_equals query failed: %s" (Dynamodb_error.to_string e)
+         | Ok items ->
+           Alcotest.(check bool) "pk-only query finds the item" true
+             (List.exists (fun i -> i = item) items));
+        match
+          Dynamodb_client.query_all client
+            ~key_condition:(Dynamodb_client.Pk_and_sk_equals
+              { pk_attribute = "pk"; pk; sk_attribute = "sk"; sk }) ()
+        with
+        | Error e -> Alcotest.failf "Pk_and_sk_equals query failed: %s" (Dynamodb_error.to_string e)
+        | Ok items ->
+          Alcotest.(check bool) "pk+sk query finds the exact item" true
+            (List.exists (fun i -> i = item) items))
+
 let () =
   Alcotest.run "dynamodb_live"
     [ ( "smoke",
@@ -243,5 +286,7 @@ let () =
             test_conditional_put_create_iff_missing;
           Alcotest.test_case "update_item: Remove/Add/Delete" `Quick test_update_remove_add_delete;
           Alcotest.test_case "condition: And/Or/Not_equals" `Quick test_condition_and_or_not_equals;
+          Alcotest.test_case "query by key_condition (Pk_equals and Pk_and_sk_equals)" `Quick
+            test_query_by_key_condition;
         ] );
     ]
