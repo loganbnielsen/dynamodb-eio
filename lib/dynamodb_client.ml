@@ -214,7 +214,8 @@ let interpret_get (status, _headers, body) =
   if status < 200 || status >= 300 then Error (Dynamodb_error.of_response ~status ~body)
   else
     match Yojson.Safe.from_string body with
-    | exception _ -> Error (Dynamodb_error.Malformed_response ("GetItem response is not valid JSON: " ^ body))
+    | exception Yojson.Json_error _ ->
+      Error (Dynamodb_error.Malformed_response ("GetItem response is not valid JSON: " ^ body))
     | `Assoc fields -> (
       match List.assoc_opt "Item" fields with
       | None -> Ok None
@@ -234,7 +235,8 @@ let interpret_query_page (status, _headers, body) =
   if status < 200 || status >= 300 then Error (Dynamodb_error.of_response ~status ~body)
   else
     match Yojson.Safe.from_string body with
-    | exception _ -> Error (Dynamodb_error.Malformed_response ("Query response is not valid JSON: " ^ body))
+    | exception Yojson.Json_error _ ->
+      Error (Dynamodb_error.Malformed_response ("Query response is not valid JSON: " ^ body))
     | `Assoc fields -> (
       match List.assoc_opt "Items" fields with
       | None -> Error (Dynamodb_error.Malformed_response "Query response has no \"Items\" field")
