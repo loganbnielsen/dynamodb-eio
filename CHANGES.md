@@ -40,6 +40,8 @@
   `Not_equals` (boolean composition, not just a bare `Equals`/
   `Attribute_not_exists`). Not yet run against a real table — gated the same
   way as the rest of `test_dynamodb_live.ml`.
+- DynamoDB JSON response parsing now catches `Yojson.Json_error` specifically
+  instead of reclassifying arbitrary exceptions as invalid JSON.
 
 ## 0.1.0
 

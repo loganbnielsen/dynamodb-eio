@@ -22,7 +22,7 @@ let exception_name full_type =
    always-Result classifier. *)
 let of_response ~status ~body =
   match Yojson.Safe.from_string body with
-  | exception _ -> Unparseable_error_response { status; body }
+  | exception Yojson.Json_error _ -> Unparseable_error_response { status; body }
   | `Assoc fields -> (
     match List.assoc_opt "__type" fields with
     | Some (`String full_type) ->
