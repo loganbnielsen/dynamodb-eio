@@ -98,7 +98,7 @@ val of_json : Yojson.Safe.t -> (t, string) result
 ## `Dynamodb_client` — raw operations
 
 ```ocaml
-type config = { table : string; region : string; credentials : Aws_credentials.t }
+type config = { table : string; region : string; credentials : Aws.Credentials.t }
 type item = (string * Dynamodb_value.t) list
 
 (* The small compare-and-swap surface DynamoDB's optimistic-locking idioms actually

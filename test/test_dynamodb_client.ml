@@ -3,7 +3,7 @@ let config ?(region = "us-east-1") () : Dynamodb_client.config =
     region;
     credentials =
       { source =
-          Aws_credentials.Static
+          Aws.Credentials.Static
             { access_key_id = "AKID"; secret_access_key = "SECRET"; session_token = None };
         region;
       };

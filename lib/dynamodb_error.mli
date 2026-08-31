@@ -1,4 +1,4 @@
-(** Error type for {!Dynamodb_client}/{!Dynamodb_table}, extending [Aws_error.t]
+(** Error type for {!Dynamodb_client}/{!Dynamodb_table}, extending [Aws.Error.t]
     the same way [kafka-eio-service]'s [Kafka_error.t] extends the raw
     librdkafka codes. *)
 
@@ -13,7 +13,7 @@ type discriminator_shape =
           carries the entity name that was actually stamped. *)
 
 type t =
-  | Aws of Aws_error.t
+  | Aws of Aws.Error.t
       (** Transport, signature, or credential-resolution failure from
           [aws-eio] itself. *)
   | Resource_not_found  (** [ResourceNotFoundException] — table/index doesn't exist. *)

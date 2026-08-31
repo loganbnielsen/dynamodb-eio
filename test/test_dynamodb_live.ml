@@ -35,7 +35,7 @@ let config () =
   let region = region () in
   { Dynamodb_client.table = Option.value (Sys.getenv_opt "DYNAMODB_EIO_LIVE_TABLE") ~default:"";
     region;
-    credentials = Aws_credentials.of_env ~region ();
+    credentials = Aws.Credentials.of_env ~region ();
   }
 
 let live_key = [ ("pk", Dynamodb_value.S "sun-live-test#s3-eio-smoke"); ("sk", Dynamodb_value.S "item") ]
