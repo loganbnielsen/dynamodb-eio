@@ -5,7 +5,7 @@
 type config = {
   table : string;
   region : string;
-  credentials : Aws_credentials.t;
+  credentials : Aws.Credentials.t;
 }
 
 type item = (string * Dynamodb_value.t) list

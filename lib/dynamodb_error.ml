@@ -4,7 +4,7 @@ type discriminator_shape =
   | Wrong_value of string
 
 type t =
-  | Aws of Aws_error.t
+  | Aws of Aws.Error.t
   | Resource_not_found
   | Conditional_check_failed
   | Service_error of { exn_type : string; message : string }
@@ -50,7 +50,7 @@ let of_response ~status ~body =
   | _ -> Unparseable_error_response { status; body }
 
 let to_string = function
-  | Aws e -> Aws_error.to_string e
+  | Aws e -> Aws.Error.to_string e
   | Resource_not_found -> "resource not found"
   | Conditional_check_failed -> "conditional check failed"
   | Service_error { exn_type; message } -> Printf.sprintf "DynamoDB error %s: %s" exn_type message

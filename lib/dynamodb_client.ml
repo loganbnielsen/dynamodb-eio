@@ -1,7 +1,7 @@
 type config = {
   table : string;
   region : string;
-  credentials : Aws_credentials.t;
+  credentials : Aws.Credentials.t;
 }
 
 type item = (string * Dynamodb_value.t) list
@@ -183,7 +183,7 @@ let compile_updates state ops =
   |> String.concat " "
 
 let resolve_credentials ~net ~clock ~fs config =
-  match Aws_credentials.resolve ~net ~clock ~fs config.credentials with
+  match Aws.Credentials.resolve ~net ~clock ~fs config.credentials with
   | Error e -> Error (Dynamodb_error.Aws e)
   | Ok creds -> Ok creds
 
@@ -201,9 +201,9 @@ let validate_config config =
    are actually reachable. Pure and separate so it's testable without a
    real network/TLS path. *)
 let reclassify_transport_result :
-    (int * (string * string) list * string, Aws_error.t) result ->
+    (int * (string * string) list * string, Aws.Error.t) result ->
     (int * (string * string) list * string, Dynamodb_error.t) result = function
-  | Error (Aws_error.Http_error (status, body)) -> Ok (status, [], body)
+  | Error (Aws.Error.Http_error (status, body)) -> Ok (status, [], body)
   | Error e -> Error (Dynamodb_error.Aws e)
   | Ok (status, headers, body) -> Ok (status, headers, body)
 
@@ -219,7 +219,7 @@ let call t ~action ~body () =
     ]
   in
   reclassify_transport_result
-    (Aws_http.signed_request ~net:t.net ~clock:t.clock
+    (Aws.Http.signed_request ~net:t.net ~clock:t.clock
        ~access_key_id:creds.access_key_id
        ~secret_access_key:creds.secret_access_key
        ?session_token:creds.session_token
