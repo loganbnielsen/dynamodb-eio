@@ -26,7 +26,7 @@ ElectroDB-replacement layer.")
  (depends
   (ocaml (>= 5.4.0))
   (eio (>= 1.3))
-  (aws-eio (>= 0.1.0))
+  (aws-eio (>= 0.1.1))
   (yojson (>= 3.0.0))
   (base64 (>= 3.0.0))
   (eio_main (and (>= 1.3) :with-test))

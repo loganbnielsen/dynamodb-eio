@@ -196,17 +196,6 @@ let validate_config config =
   if has_crlf config.region then Error (Dynamodb_error.Invalid_config "region contains a CR or LF character")
   else Ok ()
 
-(* aws-eio's signed_request already turns non-2xx into Error before
-   returning; this re-threads it into Ok so interpret_*'s non-2xx branches
-   are actually reachable. Pure and separate so it's testable without a
-   real network/TLS path. *)
-let reclassify_transport_result :
-    (int * (string * string) list * string, Aws.Error.t) result ->
-    (int * (string * string) list * string, Dynamodb_error.t) result = function
-  | Error (Aws.Error.Http_error (status, body)) -> Ok (status, [], body)
-  | Error e -> Error (Dynamodb_error.Aws e)
-  | Ok (status, headers, body) -> Ok (status, headers, body)
-
 (* Credentials are resolved fresh on every call — no caching; see
    dynamo-eio.md's "Out of Scope". *)
 let call t ~action ~body () =
@@ -218,7 +207,8 @@ let call t ~action ~body () =
       ("X-Amz-Target", "DynamoDB_20120810." ^ action);
     ]
   in
-  reclassify_transport_result
+  Result.map_error
+    (fun e -> Dynamodb_error.Aws e)
     (Aws.Http.signed_request ~net:t.net ~clock:t.clock
        ~access_key_id:creds.access_key_id
        ~secret_access_key:creds.secret_access_key
