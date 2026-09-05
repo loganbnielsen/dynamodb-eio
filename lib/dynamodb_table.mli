@@ -62,3 +62,50 @@ module Entity (E : ENTITY) : sig
       {!Index.get}/{!Index.query_page}/{!Index.query_all} returned before treating it as this
       entity's shape. *)
 end
+
+type 'a decoded_page = {
+  items : 'a list;
+  last_evaluated_key : Dynamodb_client.item option;
+      (** Pass straight back into {!Index.query_page}'s [?exclusive_start_key] —
+          this is still the raw item, not a domain value, since that's what
+          the client's pagination cursor is. *)
+}
+
+module type OBJECT = sig
+  type t
+
+  val entity_name : string
+  (** Stamped/checked via {!Entity} on this object's behalf — no separate
+      [Entity] application needed at the call site. *)
+
+  val encode : t -> Dynamodb_client.item
+  (** Must not set the entity discriminator attribute itself — {!Object.encode}
+      stamps it after calling this. *)
+
+  val decode : Dynamodb_client.item -> (t, string) result
+  (** Runs only after the discriminator has already been checked — this
+      function doesn't need to re-check it. [Error msg] becomes
+      [Dynamodb_error.Malformed_response msg]. *)
+end
+
+module Object (O : OBJECT) : sig
+  val encode : O.t -> Dynamodb_client.item
+  (** [O.encode] followed by stamping the entity discriminator. *)
+
+  val decode : Dynamodb_client.item -> (O.t, Dynamodb_error.t) result
+  (** Checks the entity discriminator first ([Error (Wrong_entity _)] on
+      mismatch/missing), then runs [O.decode]. Callers cannot accidentally
+      decode a different entity's item through this function. *)
+
+  val decode_option : Dynamodb_client.item option -> (O.t option, Dynamodb_error.t) result
+  (** For {!Index.get}'s [item option] result. [None] stays [Ok None]. *)
+
+  val decode_list : Dynamodb_client.item list -> (O.t list, Dynamodb_error.t) result
+  (** For {!Index.query_all}'s [item list] result. Fails on the first item
+      that doesn't decode as this entity. *)
+
+  val decode_page : Dynamodb_client.query_page -> (O.t decoded_page, Dynamodb_error.t) result
+  (** For {!Index.query_page}'s result — decodes [items], carries
+      [last_evaluated_key] through unchanged for the next page's
+      [?exclusive_start_key]. *)
+end

@@ -95,6 +95,75 @@ let test_entity_stamp_replaces_existing_discriminator () =
     (List.length (List.filter (fun (k, _) -> k = User_entity.discriminator_attribute) stamped));
   Alcotest.(check bool) "now checks as user" true (Result.is_ok (User_entity.check stamped))
 
+module User = struct
+  type t = { id : string; email : string }
+
+  let entity_name = "user"
+  let encode u = [ ("id", Dynamodb_value.S u.id); ("email", Dynamodb_value.S u.email) ]
+
+  let decode item =
+    match (List.assoc_opt "id" item, List.assoc_opt "email" item) with
+    | Some (Dynamodb_value.S id), Some (Dynamodb_value.S email) -> Ok { id; email }
+    | _ -> Error "User.decode: missing or malformed id/email"
+end
+
+module User_object = Dynamodb_table.Object (User)
+
+let a_user = { User.id = "usr_1"; email = "a@example.com" }
+
+let test_object_encode_stamps_discriminator () =
+  let encoded = User_object.encode a_user in
+  Alcotest.(check bool) "discriminator present and correct" true
+    (List.assoc_opt "__dynamodb_eio_entity__" encoded = Some (Dynamodb_value.S "user"))
+
+let test_object_decode_round_trips () =
+  match User_object.decode (User_object.encode a_user) with
+  | Error e -> Alcotest.fail (Dynamodb_error.to_string e)
+  | Ok u -> Alcotest.(check bool) "decoded matches original" true (u = a_user)
+
+let test_object_decode_rejects_wrong_entity () =
+  let stamped_as_order = Order_entity.stamp (User.encode a_user) in
+  Alcotest.(check bool) "decoding an order-stamped item as User fails with Wrong_entity" true
+    (match User_object.decode stamped_as_order with
+     | Error (Dynamodb_error.Wrong_entity { expected = "user"; got = Wrong_value "order" }) -> true
+     | _ -> false)
+
+let test_object_decode_surfaces_caller_decode_error () =
+  let malformed = User_object.encode a_user |> List.remove_assoc "email" in
+  Alcotest.(check bool) "a caller decode failure becomes Malformed_response" true
+    (match User_object.decode malformed with
+     | Error (Dynamodb_error.Malformed_response _) -> true
+     | _ -> false)
+
+let test_object_decode_option () =
+  Alcotest.(check bool) "None stays Ok None" true (User_object.decode_option None = Ok None);
+  Alcotest.(check bool) "Some decodes" true (User_object.decode_option (Some (User_object.encode a_user)) = Ok (Some a_user))
+
+let other_user = { User.id = "usr_2"; email = "b@example.com" }
+
+let test_object_decode_list () =
+  match User_object.decode_list [ User_object.encode a_user; User_object.encode other_user ] with
+  | Error e -> Alcotest.fail (Dynamodb_error.to_string e)
+  | Ok users -> Alcotest.(check bool) "both decoded in order" true (users = [ a_user; other_user ])
+
+let test_object_decode_list_fails_on_first_bad_item () =
+  let bad = Order_entity.stamp (User.encode other_user) in
+  Alcotest.(check bool) "a wrong-entity item anywhere in the list fails the whole decode" true
+    (match User_object.decode_list [ User_object.encode a_user; bad ] with
+     | Error (Dynamodb_error.Wrong_entity _) -> true
+     | _ -> false)
+
+let test_object_decode_page_carries_last_evaluated_key () =
+  let cursor = [ ("PK", Dynamodb_value.S "ORG#acme") ] in
+  let page : Dynamodb_client.query_page =
+    { items = [ User_object.encode a_user ]; last_evaluated_key = Some cursor }
+  in
+  match User_object.decode_page page with
+  | Error e -> Alcotest.fail (Dynamodb_error.to_string e)
+  | Ok { items; last_evaluated_key } ->
+    Alcotest.(check bool) "items decoded" true (items = [ a_user ]);
+    Alcotest.(check bool) "cursor carried through unchanged" true (last_evaluated_key = Some cursor)
+
 let () =
   Alcotest.run "dynamodb_table"
     [ ( "Index",
@@ -111,5 +180,19 @@ let () =
             test_entity_check_distinguishes_wrong_type_from_missing;
           Alcotest.test_case "stamp replaces existing discriminator" `Quick
             test_entity_stamp_replaces_existing_discriminator;
+        ] );
+      ( "Object",
+        [ Alcotest.test_case "encode stamps the entity discriminator" `Quick test_object_encode_stamps_discriminator;
+          Alcotest.test_case "decode round-trips encode" `Quick test_object_decode_round_trips;
+          Alcotest.test_case "decode rejects a different entity's item" `Quick
+            test_object_decode_rejects_wrong_entity;
+          Alcotest.test_case "decode surfaces a caller decode error as Malformed_response" `Quick
+            test_object_decode_surfaces_caller_decode_error;
+          Alcotest.test_case "decode_option handles None/Some" `Quick test_object_decode_option;
+          Alcotest.test_case "decode_list decodes every item in order" `Quick test_object_decode_list;
+          Alcotest.test_case "decode_list fails on the first bad item" `Quick
+            test_object_decode_list_fails_on_first_bad_item;
+          Alcotest.test_case "decode_page decodes items and carries last_evaluated_key" `Quick
+            test_object_decode_page_carries_last_evaluated_key;
         ] );
     ]

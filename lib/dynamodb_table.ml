@@ -76,3 +76,48 @@ module Entity (E : ENTITY) = struct
     | None ->
       Error (Dynamodb_error.Wrong_entity { expected = E.name; got = Dynamodb_error.Missing })
 end
+
+type 'a decoded_page = {
+  items : 'a list;
+  last_evaluated_key : Dynamodb_client.item option;
+}
+
+module type OBJECT = sig
+  type t
+
+  val entity_name : string
+  val encode : t -> Dynamodb_client.item
+  val decode : Dynamodb_client.item -> (t, string) result
+end
+
+module Object (O : OBJECT) = struct
+  module E = Entity (struct
+    let name = O.entity_name
+  end)
+
+  let encode obj = E.stamp (O.encode obj)
+
+  let decode item =
+    match E.check item with
+    | Error _ as e -> e
+    | Ok item -> (
+      match O.decode item with
+      | Ok obj -> Ok obj
+      | Error msg -> Error (Dynamodb_error.Malformed_response msg))
+
+  let decode_option = function
+    | None -> Ok None
+    | Some item -> Result.map Option.some (decode item)
+
+  let rec decode_list = function
+    | [] -> Ok []
+    | item :: rest -> (
+      match decode item with
+      | Error _ as e -> e
+      | Ok obj -> Result.map (fun objs -> obj :: objs) (decode_list rest))
+
+  let decode_page (page : Dynamodb_client.query_page) =
+    match decode_list page.items with
+    | Error _ as e -> e
+    | Ok items -> Ok { items; last_evaluated_key = page.last_evaluated_key }
+end
