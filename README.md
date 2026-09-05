@@ -1,8 +1,12 @@
 # dynamodb-eio
 
 An Eio-native DynamoDB client built on [aws-eio](https://github.com/loganbnielsen/aws-eio)
-— "the ElectroDB-replacement layer." A typed indexing layer is the actual reason
-this exists, not just a raw API binding.
+— "the ElectroDB-replacement layer." Three composable layers on top of the raw
+client are the actual reason this exists, not just a raw API binding: a typed
+index layer (`Dynamodb_table.Index`, key-shape safety), an object
+representation layer (`Dynamodb_table.Object`, domain encode/decode plus
+entity-discriminator stamping/checking), and the lower-level `Entity`
+functor those two compose on top of for callers that want manual control.
 
 Originally developed inside the [Sun](https://github.com/loganbnielsen/sun)
 platform, and extracted here to be usable standalone.
@@ -58,6 +62,18 @@ nominally distinct `pk`/`sk` types, generating its own typed `get`/`query_page`/
 a functor — the same shape as a table-per-schema functor, applied once per
 index instead of once per table. Passing one index's key to another index's
 functions is a **type error**, not a runtime bug.
+
+`Index` deliberately stops at raw `Dynamodb_client.item`/`item option`/
+`item list` results — a single index can legitimately hold more than one
+entity/object type, so choosing which decoder applies to a given query is
+left to the repository, not baked into `Index`. `Dynamodb_table.Object` is
+the layer that owns turning a raw item into (and back from) a domain value:
+a caller-supplied `encode`/`decode` pair, with the entity discriminator
+stamped on encode and checked before decode runs, so callers can't
+accidentally decode the wrong entity's item through it. A repository
+composes the two explicitly: `Index.get` with `Object.decode_option`,
+`Index.query_all` with `Object.decode_list`, `Index.query_page` with
+`Object.decode_page`.
 
 ## Wire protocol
 
@@ -222,12 +238,32 @@ module Entity (E : ENTITY) : sig
       is missing) — call after [Dynamodb_client.get_item]/[query_page]/[query_all] before treating
       the item as this entity's shape. *)
 end
+
+type 'a decoded_page = { items : 'a list; last_evaluated_key : Dynamodb_client.item option }
+
+module type OBJECT = sig
+  type t
+
+  val entity_name : string  (** Stamped/checked via [Entity] automatically. *)
+  val encode : t -> Dynamodb_client.item
+  val decode : Dynamodb_client.item -> (t, string) result
+  (** Runs only after the discriminator is already known good. *)
+end
+
+module Object (O : OBJECT) : sig
+  val encode : O.t -> Dynamodb_client.item
+  val decode : Dynamodb_client.item -> (O.t, Dynamodb_error.t) result
+  val decode_option : Dynamodb_client.item option -> (O.t option, Dynamodb_error.t) result
+  val decode_list : Dynamodb_client.item list -> (O.t list, Dynamodb_error.t) result
+  val decode_page : Dynamodb_client.query_page -> (O.t decoded_page, Dynamodb_error.t) result
+end
 ```
 
-The two functors compose independently — `Index` handles key-shape safety,
-`Entity` handles cross-entity-type discrimination on a shared table. A caller
-who wants both applies `Entity(E).stamp` before `Index(I).get`'s underlying
-put, and `Entity(E).check` on what `Index(I).get`/`query_page`/`query_all` return.
+The functors compose independently — `Index` handles key-shape safety,
+`Object` handles domain encode/decode plus cross-entity-type discrimination
+on a shared table. `Entity` is what `Object` is built on; most callers reach
+for `Object` directly and only drop to `Entity.stamp`/`Entity.check` by hand
+when they need to discriminate without a full encode/decode round trip.
 
 **The one guarantee that has to be a compile-time check, not a runtime
 assertion:** passing `User_by_email`'s `` `Email `` key to
@@ -250,10 +286,29 @@ module User_primary = struct
 end
 
 module Users = Dynamodb_table.Index (User_primary)
-module User_entity = Dynamodb_table.Entity (struct let name = "user" end)
+
+module User = struct
+  type t = { id : string; email : string }
+
+  let entity_name = "user"
+  let encode u = [ ("id", Dynamodb_value.S u.id); ("email", Dynamodb_value.S u.email) ]
+  let decode item =
+    match (List.assoc_opt "id" item, List.assoc_opt "email" item) with
+    | Some (Dynamodb_value.S id), Some (Dynamodb_value.S email) -> Ok { id; email }
+    | _ -> Error "missing or malformed id/email"
+end
+
+module User_object = Dynamodb_table.Object (User)
 
 let config = { Dynamodb_client.table = "app"; region = "us-east-1"; credentials }
 let client = Dynamodb_client.create ~net ~clock ~fs config
+
+(* A repository composes Index (key-shape safety) with Object (domain
+   encode/decode + entity discrimination) explicitly: *)
+let find_user client ~org ~id =
+  match Users.get client ~pk:(`Org org) ~sk:(`User id) with
+  | Error _ as e -> e
+  | Ok item -> User_object.decode_option item
 
 (* let _ = Users.get client ~pk:(`Email "x") ~sk:(`User "y")
    -- does not compile: `Email is User_by_email's pk type, not User_primary's *)
