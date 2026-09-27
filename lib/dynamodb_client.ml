@@ -47,7 +47,7 @@ let create ~net ~clock ~fs config =
     config;
   }
 
-let ( let* ) = Result.bind
+open Result.Syntax
 
 let item_to_json (item : item) : Yojson.Safe.t =
   `Assoc (List.map (fun (k, v) -> (k, Dynamodb_value.to_json v)) item)
