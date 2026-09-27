@@ -10,7 +10,7 @@ type t =
   | L of t list
   | M of (string * t) list
 
-let ( let* ) = Result.bind
+open Result.Syntax
 
 let rec to_json = function
   | S s -> `Assoc [ ("S", `String s) ]
