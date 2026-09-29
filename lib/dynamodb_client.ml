@@ -209,12 +209,19 @@ let call t ~action ~body () =
   in
   Result.map_error
     (fun e -> Dynamodb_error.Aws e)
-    (Aws.Http.signed_request ~net:t.net ~clock:t.clock
-       ~access_key_id:creds.access_key_id
-       ~secret_access_key:creds.secret_access_key
-       ?session_token:creds.session_token
-       ~region:t.config.region ~service:"dynamodb" ~normalize_path:true
-       ~meth:`POST ~host ~path:"/" ~extra_headers ~body ())
+    (Aws.Http.signed_request ~net:t.net ~clock:t.clock ~credentials:creds
+       ~region:t.config.region ~service:"dynamodb"
+       ~request:
+         { Aws.Http.meth = `POST
+         ; host
+         ; port = None
+         ; path = "/"
+         ; query = []
+         ; extra_headers
+         ; payload_hash = None
+         ; body = Some body
+         }
+       ())
 
 (* Pure and separate from call so it's unit-testable with synthetic
    (status, headers, body) triples. *)
